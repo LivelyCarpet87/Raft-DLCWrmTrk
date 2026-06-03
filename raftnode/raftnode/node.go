@@ -12,6 +12,7 @@ import (
 	bolt "github.com/hashicorp/raft-boltdb"
 
 	"raft-dlcwrmtrk/fsm"
+	"raft-dlcwrmtrk/raftcommands"
 )
 
 type Node struct {
@@ -20,16 +21,8 @@ type Node struct {
 	DB   *sql.DB
 }
 
-type Command struct {
-	Op   string        `json:"op"`
-	Args []interface{} `json:"args"`
-}
 
-type Envelope struct {
-	Cmd Command `json:"cmd"`
-}
-
-func NewNode(id, raftAddr string, httpAddr string, db *sql.DB,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
+func NewNode(id, raftAddr string, failureDomain string, grpcAddr string, httpAddr string, db *sql.DB,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
 
 	raftLogger := rootLogger.Named("raft")
 	fsmLogger  := rootLogger.Named("fsm")
@@ -56,7 +49,6 @@ func NewNode(id, raftAddr string, httpAddr string, db *sql.DB,  rootLogger hclog
 		return nil, err
 	}
 
-	// ---- BOOTSTRAP SAFETY ----
 	if bootstrap {
 		config := raft.Configuration{
 			Servers: []raft.Server{
@@ -74,18 +66,22 @@ func NewNode(id, raftAddr string, httpAddr string, db *sql.DB,  rootLogger hclog
 		for r.State() != raft.Leader {
 			time.Sleep(50 * time.Millisecond)
 		}
-		cmd := Envelope{
-			Cmd: Command{
-				Op: "add_node",
-				Args: []interface{}{
-					id,
-					raftAddr,
-					httpAddr,
-				},
-			},
+		addNodeCommand := raftcommands.AddNodeCommand{
+			NodeUID: id,
+			FailureDomain: failureDomain,
+			RaftAddr: raftAddr,
+			GrpcAddr: grpcAddr,
+			HttpAddr: httpAddr,
 		}
-		data, _ := json.Marshal(cmd)
-		r.Apply(data, 5*time.Second)
+		cmdData, _ := json.Marshal(addNodeCommand)
+
+		cmdEnv := raftcommands.CommandEnvelope{
+			Command: "AddNode",
+			Data: cmdData,
+		}
+		cmdEnvData, _ := json.Marshal(cmdEnv)
+
+		r.Apply(cmdEnvData, 5*time.Second)
 	}
 
 	return &Node{
