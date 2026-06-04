@@ -22,7 +22,7 @@ type Node struct {
 }
 
 
-func NewNode(id, raftAddr string, failureDomain string, grpcAddr string, httpAddr string, db *sql.DB,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
+func NewNode(id, raftAddr string, failureDomain string, httpAddr string, db *sql.DB,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
 
 	raftLogger := rootLogger.Named("raft")
 	fsmLogger  := rootLogger.Named("fsm")
@@ -70,7 +70,6 @@ func NewNode(id, raftAddr string, failureDomain string, grpcAddr string, httpAdd
 			NodeUID: id,
 			FailureDomain: failureDomain,
 			RaftAddr: raftAddr,
-			GrpcAddr: grpcAddr,
 			HttpAddr: httpAddr,
 		}
 		cmdData, _ := json.Marshal(addNodeCommand)

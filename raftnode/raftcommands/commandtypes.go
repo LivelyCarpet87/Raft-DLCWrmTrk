@@ -15,6 +15,5 @@ type AddNodeCommand struct {
     NodeUID string `json:"nodeID"`
     FailureDomain string `json:"failureDomain"`
     RaftAddr string `json:"raftAddr"`
-    GrpcAddr string `json:"grpcAddr"`
     HttpAddr string `json:"httpAddr"`
 }

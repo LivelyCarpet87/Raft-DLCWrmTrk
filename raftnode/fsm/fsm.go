@@ -35,7 +35,6 @@ func InitSchema(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS nodes (
 		node_id TEXT PRIMARY KEY,
 		raft_addr TEXT NOT NULL UNIQUE,
-		grpc_addr TEXT NOT NULL UNIQUE,
 		http_addr TEXT NOT NULL UNIQUE,
 		failure_domain TEXT NOT NULL,
 		status TEXT NOT NULL, -- up|down
@@ -196,9 +195,9 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		var cmd raftcommands.AddNodeCommand
     	json.Unmarshal(cmdEnv.Data, &cmd)
 		_, err := tx.Exec(`
-			INSERT OR REPLACE INTO nodes(node_id,raft_addr,grpc_addr,http_addr,failure_domain,status)
-			VALUES(?,?,?,?,?,'up')
-		`, cmd.NodeUID, cmd.RaftAddr, cmd.GrpcAddr, cmd.HttpAddr, cmd.FailureDomain)
+			INSERT OR REPLACE INTO nodes(node_id,raft_addr,http_addr,failure_domain,status)
+			VALUES(?,?,?,?,'up')
+		`, cmd.NodeUID, cmd.RaftAddr, cmd.HttpAddr, cmd.FailureDomain)
 		if err != nil {
 			f.logger.Error("AddNode failed", "err", err)
 			return err
