@@ -12,7 +12,7 @@ type CommandEnvelope struct {
 }
 
 type AddNodeCommand struct {
-    NodeUID string `json:"nodeID"`
+    NodeID string `json:"nodeID"`
     FailureDomain string `json:"failureDomain"`
     RaftAddr string `json:"raftAddr"`
     HttpAddr string `json:"httpAddr"`

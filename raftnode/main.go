@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,23 +13,17 @@ import (
 	"time"
 	"flag"
 	"fmt"
+	"net/http"
 
 	"raft-dlcwrmtrk/fsm"
 	"raft-dlcwrmtrk/raftnode"
 	"raft-dlcwrmtrk/raftcommands"
+	"raft-dlcwrmtrk/httpserver"
 
-	"github.com/hashicorp/raft"
 	"github.com/hashicorp/go-hclog"
 
 	_ "modernc.org/sqlite"
 )
-
-type JoinRequest struct {
-	ID       string `json:"id"`
-	FailureDomain string `json:"failureDomain"`
-	RaftAddr string `json:"raft_addr"`
-	HttpAddr string `json:"http_addr"`
-}
 
 func discoverLeader(seeds []string) (string, error) {
 	for _, s := range seeds {
@@ -40,24 +33,29 @@ func discoverLeader(seeds []string) (string, error) {
 		}
 		defer resp.Body.Close()
 
-		b, _ := io.ReadAll(resp.Body)
-		leader := string(b)
-
 		if resp.StatusCode == 200 {
+			type Result struct {
+				Leader string `json:"leader"`
+			}
+			var result Result
+			body, _ := io.ReadAll(resp.Body)
+			err = json.Unmarshal(body, &result)
+			if (err != nil) {
+				return "", err
+			}
+			leader := result.Leader
 			return leader, nil
 		}
 	}
 	return "", errors.New("no leader found")
 }
 
-func joinCluster(leader string, self JoinRequest) error {
-
-	data, _ := json.Marshal(self)
+func joinCluster(leader string, cmdEnv []byte) error {
 
 	resp, err := http.Post(
-		"http://"+leader+"/cluster/join",
-		"application/json",
-		bytes.NewReader(data),
+		"http://"+leader+"/apply",
+		"application/octet-stream",
+		bytes.NewReader(cmdEnv),
 	)
 
 	if err != nil {
@@ -146,76 +144,29 @@ func main() {
 	if !*bootstrap {
 		time.Sleep(500 * time.Millisecond) // small safety delay
 	
-		selfJoinReq := JoinRequest{
-			ID:       *nodeID,
+		addNodeCommand := raftcommands.AddNodeCommand{
+			NodeID: *nodeID,
 			FailureDomain: *failureDomain,
 			RaftAddr: raftAddr,
 			HttpAddr: httpAddr,
 		}
-		if err := joinCluster(leader, selfJoinReq); err != nil {
-			log.Error("Failed to join cluster", "err",err)
-		}
-	}
-
-	// ---- LEADER INFO ----
-	http.HandleFunc("/leader", func(w http.ResponseWriter, r *http.Request) {
-		leaderRaft := node.Raft.Leader()
-
-		if leaderRaft == "" {
-			http.Error(w, "no leader", http.StatusServiceUnavailable)
-			return
-		}
-
-		httpAddr,err := node.FSM.QueryHttpAddrFromRaftAddr(string(leaderRaft))
-
-		if err != nil {
-			http.Error(w, "leader mapping not found", http.StatusInternalServerError)
-			return
-		}
-		w.Write([]byte(httpAddr))
-	})
-
-	// ---- CLUSTER JOIN ----
-	http.HandleFunc("/cluster/join", func(w http.ResponseWriter, r *http.Request) {
-
-		if node.Raft.State() != raft.Leader {
-			http.Error(w, "not leader", 403)
-			return
-		}
-
-		var req JoinRequest
-		json.NewDecoder(r.Body).Decode(&req)
-
-		addNodeCommand := raftcommands.AddNodeCommand{
-			NodeUID: req.ID,
-			FailureDomain: req.FailureDomain,
-			RaftAddr: req.RaftAddr,
-			HttpAddr: req.HttpAddr,
-		}
 		cmdData, _ := json.Marshal(addNodeCommand)
-
 		cmdEnv := raftcommands.CommandEnvelope{
 			Command: "AddNode",
 			Data: cmdData,
 		}
-
 		cmdEnvData, _ := json.Marshal(cmdEnv)
-
-		if err := node.Raft.Apply(cmdEnvData, 5*time.Second).Error(); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
+		if err := joinCluster(leader, cmdEnvData); err != nil {
+			log.Error("Failed to join cluster", "err",err)
 		}
+	}
 
-		if err := node.AddRaftNode(req.ID, req.RaftAddr); err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-
-		w.Write([]byte("joined"))
-	})
+	
 
 	log.Info("Starting HTTP server", "httpAddr",httpAddr)
-	go http.ListenAndServe(httpAddr, nil)
+	httpLogger := rootLogger.Named("httpServer")
+	s := httpserver.New(node, httpLogger)
+	s.Run(httpAddr)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)

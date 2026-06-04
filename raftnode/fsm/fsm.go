@@ -197,7 +197,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		_, err := tx.Exec(`
 			INSERT OR REPLACE INTO nodes(node_id,raft_addr,http_addr,failure_domain,status)
 			VALUES(?,?,?,?,'up')
-		`, cmd.NodeUID, cmd.RaftAddr, cmd.HttpAddr, cmd.FailureDomain)
+		`, cmd.NodeID, cmd.RaftAddr, cmd.HttpAddr, cmd.FailureDomain)
 		if err != nil {
 			f.logger.Error("AddNode failed", "err", err)
 			return err

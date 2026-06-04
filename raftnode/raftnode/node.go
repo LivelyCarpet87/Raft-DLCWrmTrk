@@ -18,7 +18,6 @@ import (
 type Node struct {
 	Raft *raft.Raft
 	FSM  *fsm.FSM
-	DB   *sql.DB
 }
 
 
@@ -67,7 +66,7 @@ func NewNode(id, raftAddr string, failureDomain string, httpAddr string, db *sql
 			time.Sleep(50 * time.Millisecond)
 		}
 		addNodeCommand := raftcommands.AddNodeCommand{
-			NodeUID: id,
+			NodeID: id,
 			FailureDomain: failureDomain,
 			RaftAddr: raftAddr,
 			HttpAddr: httpAddr,
@@ -86,7 +85,6 @@ func NewNode(id, raftAddr string, failureDomain string, httpAddr string, db *sql
 	return &Node{
 		Raft: r,
 		FSM:  f,
-		DB:   db,
 	}, nil
 }
 
@@ -105,4 +103,13 @@ func (n *Node) RemoveRaftNode(id string) error {
 		0,
 		0,
 	).Error()
+}
+
+func (n *Node) IsLeader() bool {
+	return n.Raft.State() == raft.Leader
+}
+
+func (n *Node) GetLeader() string {
+	leader, _ := n.FSM.QueryHttpAddrFromRaftAddr(string(n.Raft.Leader()))
+	return leader
 }
