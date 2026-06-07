@@ -17,6 +17,7 @@ import (
 
 	"raft-dlcwrmtrk/fsm"
 	"raft-dlcwrmtrk/raftcommands"
+	"raft-dlcwrmtrk/httpserver/responsetypes"
 )
 
 type Node struct {
@@ -98,22 +99,35 @@ func (n *Node) ProxyApply(cmdEnv raftcommands.CommandEnvelope) (error) {
 	if (n.IsLeader()){
 		return n.Raft.Apply(cmdEnvData, 5*time.Second).Error()
 	} else {
-		leader := n.GetLeader()
-		resp, err := http.Post(
-			"http://"+leader+"/apply",
+		leader, err := n.GetLeaderHttpAddr()
+		if err != nil {
+			return err
+		}
+
+		resp, httpErr := http.Post(
+			"http://"+leader+"/raft/apply",
 			"application/octet-stream",
 			bytes.NewReader(cmdEnvData),
 		)
 
-		if err != nil {
-			return err
+		if httpErr != nil {
+			return httpErr
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode != 200 {
-			body, _ := io.ReadAll(resp.Body)
-			return errors.New(string(body))
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return readErr
 		}
+
+		var response responsetypes.Response[any]
+		if (json.Unmarshal(body, &response) != nil) {
+			panic(err)
+		}
+		if (!response.Success){
+			return errors.New(response.Error.Message)
+		}
+
 	}
 	return nil
 }
@@ -155,7 +169,10 @@ func (n *Node) IsLeader() bool {
 	return n.Raft.State() == raft.Leader
 }
 
-func (n *Node) GetLeader() string {
-	leader, _ := n.FSM.QueryHttpAddrFromRaftAddr(string(n.Raft.Leader()))
-	return leader
+func (n *Node) GetLeaderHttpAddr() (string, error) {
+	leaderRaftAddr, _ := n.Raft.LeaderWithID()
+	if leaderRaftAddr == "" {
+		return "", errors.New("no leader")
+	}
+	return n.FSM.QueryHttpAddrFromRaftAddr(string(leaderRaftAddr))
 }

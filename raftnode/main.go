@@ -18,7 +18,8 @@ import (
 	"raft-dlcwrmtrk/fsm"
 	"raft-dlcwrmtrk/raftnode"
 	// "raft-dlcwrmtrk/raftcommands"
-	"raft-dlcwrmtrk/httpserver"
+	"raft-dlcwrmtrk/httpserver/server"
+	rt "raft-dlcwrmtrk/httpserver/responsetypes"
 
 	"github.com/hashicorp/go-hclog"
 
@@ -33,18 +34,13 @@ func discoverLeader(seeds []string) (string, error) {
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode == 200 {
-			type Result struct {
-				Leader string `json:"leader"`
-			}
-			var result Result
-			body, _ := io.ReadAll(resp.Body)
-			err = json.Unmarshal(body, &result)
-			if (err != nil) {
-				return "", err
-			}
-			leader := result.Leader
-			return leader, nil
+		var response rt.Response[rt.LeaderHttpAddrResponse]
+		body, _ := io.ReadAll(resp.Body)
+		if (json.Unmarshal(body, &response) != nil) {
+			panic(err)
+		}
+		if (response.Success){
+			return response.Data.Leader, nil
 		}
 	}
 	return "", errors.New("no leader found")
@@ -148,7 +144,7 @@ func main() {
 
 	log.Info("Starting HTTP server", "httpAddr",httpAddr)
 	httpLogger := rootLogger.Named("httpServer")
-	s := httpserver.New(node, httpLogger)
+	s := server.New(node, httpLogger)
 	s.Run(httpAddr)
 
 	sig := make(chan os.Signal, 1)
