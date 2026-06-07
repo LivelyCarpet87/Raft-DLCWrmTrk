@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -14,10 +13,11 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"raft-dlcwrmtrk/fsm"
 	"raft-dlcwrmtrk/raftnode"
-	"raft-dlcwrmtrk/raftcommands"
+	// "raft-dlcwrmtrk/raftcommands"
 	"raft-dlcwrmtrk/httpserver"
 
 	"github.com/hashicorp/go-hclog"
@@ -27,7 +27,7 @@ import (
 
 func discoverLeader(seeds []string) (string, error) {
 	for _, s := range seeds {
-		resp, err := http.Get("http://" + s + "/leader")
+		resp, err := http.Get("http://" + s + "/raft/leader")
 		if err != nil {
 			continue
 		}
@@ -48,27 +48,6 @@ func discoverLeader(seeds []string) (string, error) {
 		}
 	}
 	return "", errors.New("no leader found")
-}
-
-func joinCluster(leader string, cmdEnv []byte) error {
-
-	resp, err := http.Post(
-		"http://"+leader+"/apply",
-		"application/octet-stream",
-		bytes.NewReader(cmdEnv),
-	)
-
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return errors.New(string(body))
-	}
-
-	return nil
 }
 
 func main() {
@@ -144,20 +123,24 @@ func main() {
 	if !*bootstrap {
 		time.Sleep(500 * time.Millisecond) // small safety delay
 	
-		addNodeCommand := raftcommands.AddNodeCommand{
-			NodeID: *nodeID,
-			FailureDomain: *failureDomain,
-			RaftAddr: raftAddr,
-			HttpAddr: httpAddr,
+		form := url.Values{}
+		form.Add("nodeID", *nodeID)
+		form.Add("raftAddr", raftAddr)
+		form.Add("failureDomain", *failureDomain)
+		form.Add("httpAddr", httpAddr)
+
+		resp, err := http.PostForm(
+			"http://"+leader+"/raft/join",
+			form,
+		)
+		if err != nil {
+			panic(err)
 		}
-		cmdData, _ := json.Marshal(addNodeCommand)
-		cmdEnv := raftcommands.CommandEnvelope{
-			Command: "AddNode",
-			Data: cmdData,
-		}
-		cmdEnvData, _ := json.Marshal(cmdEnv)
-		if err := joinCluster(leader, cmdEnvData); err != nil {
-			log.Error("Failed to join cluster", "err",err)
+		defer resp.Body.Close()
+
+		_, err = io.ReadAll(resp.Body)
+		if err != nil {
+			panic(err)
 		}
 	}
 

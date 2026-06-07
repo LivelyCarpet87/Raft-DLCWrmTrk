@@ -1,8 +1,12 @@
 package raftnode
 
 import (
+	"bytes"
 	"database/sql"
+	"errors"
 	"net"
+	"net/http"
+	"io"
 	"os"
 	"time"
 	"encoding/json"
@@ -21,7 +25,7 @@ type Node struct {
 }
 
 
-func NewNode(id, raftAddr string, failureDomain string, httpAddr string, db *sql.DB,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
+func NewNode(id string, raftAddr string, failureDomain string, httpAddr string, db *sql.DB,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
 
 	raftLogger := rootLogger.Named("raft")
 	fsmLogger  := rootLogger.Named("fsm")
@@ -88,10 +92,52 @@ func NewNode(id, raftAddr string, failureDomain string, httpAddr string, db *sql
 	}, nil
 }
 
-func (n *Node) AddRaftNode(id, addr string) error {
+func (n *Node) ProxyApply(cmdEnv raftcommands.CommandEnvelope) (error) {
+	cmdEnvData, _ := json.Marshal(cmdEnv)
+
+	if (n.IsLeader()){
+		return n.Raft.Apply(cmdEnvData, 5*time.Second).Error()
+	} else {
+		leader := n.GetLeader()
+		resp, err := http.Post(
+			"http://"+leader+"/apply",
+			"application/octet-stream",
+			bytes.NewReader(cmdEnvData),
+		)
+
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
+			return errors.New(string(body))
+		}
+	}
+	return nil
+}
+
+func (n *Node) AddRaftNode(nodeID string, failureDomain string, raftAddr string, httpAddr string) error {
+	addNodeCommand := raftcommands.AddNodeCommand{
+		NodeID: nodeID,
+		FailureDomain: failureDomain,
+		RaftAddr: raftAddr,
+		HttpAddr: httpAddr,
+	}
+	cmdData, _ := json.Marshal(addNodeCommand)
+	cmdEnv := raftcommands.CommandEnvelope{
+		Command: "AddNode",
+		Data: cmdData,
+	}
+	cmdEnvData, _ := json.Marshal(cmdEnv)
+	applyFuture := n.Raft.Apply(cmdEnvData, 5*time.Second) // TODO: Detect and fix if metadata applied but voter not added
+	if err := applyFuture.Error(); err != nil {
+		return err
+	}
 	return n.Raft.AddVoter(
-		raft.ServerID(id),
-		raft.ServerAddress(addr),
+		raft.ServerID(nodeID),
+		raft.ServerAddress(raftAddr),
 		0,
 		0,
 	).Error()
