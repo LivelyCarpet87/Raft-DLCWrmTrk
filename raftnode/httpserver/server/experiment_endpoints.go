@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"raft-dlcwrmtrk/raftcommands"
-	//"raft-dlcwrmtrk/httpserver/responsetypes"
+	rt "raft-dlcwrmtrk/httpserver/responsetypes"
 )
 
 func (s *HTTPServer) TryAddTag(c *gin.Context) {
@@ -58,5 +58,68 @@ func (s *HTTPServer) TryAddTag(c *gin.Context) {
 	}
 
 	OK(c, 200, nil)
+	return
+}
+
+func (s *HTTPServer) ListTags(c *gin.Context) {
+	tagType := c.Query("tagType")
+	showHidden := c.DefaultQuery("showHidden", "false") == "true"
+
+
+	if (tagType != "" && tagType != "primary" && tagType != "secondary" && tagType != "condition") {
+		Fail(c, 400, "BAD_INPUT", "tag type is invalid")
+		return
+	}
+	readOnlyTx, err := s.RaftNode.GetReadOnlyTx(c.Request.Context())
+	defer readOnlyTx.Rollback()
+	if (err != nil) {
+		Fail(c, 503, "FSM_READ_ERR", "failed to get read-only tx")
+		return
+	}
+
+	query := `
+        SELECT tag_name, type, visible
+        FROM tags
+        WHERE 1=1
+    `
+    var args []any
+
+    if tagType != "" {
+        query += " AND type=?"
+        args = append(args, tagType)
+    }
+
+    if !showHidden {
+        query += " AND visible"
+    }
+
+	s.logger.Trace("Running query", "query", query)
+
+    rows, err := readOnlyTx.Query(query, args...)
+    if err != nil {
+		s.logger.Error("SQLite3 Query Failed", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "query to list tags failed")
+        return
+    }
+    defer rows.Close()
+
+    var tags []rt.TagInfo
+    for rows.Next() {
+        var t rt.TagInfo
+        if err := rows.Scan(&t.TagName, &t.TagType, &t.Visible); err != nil {
+			s.logger.Error("SQLite3 Query Failed", "err", err)
+			Fail(c, 503, "FSM_READ_ERR", "error parsing query results")
+            return
+        }
+        tags = append(tags, t)
+    }
+	readOnlyTx.Rollback()
+
+	s.logger.Trace("Found tags", "tags", tags)
+	respData := rt.ListTagsResponse{
+		Tags: &tags,
+	}
+
+	OK(c, 200, respData)
 	return
 }

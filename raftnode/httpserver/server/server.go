@@ -66,7 +66,7 @@ func New(raftNode *raftnode.Node, logger hclog.Logger) *HTTPServer {
 			tags := experiment.Group("/tags")
 			{
 				tags.POST("/create", s.TryAddTag)
-				//tags.GET("/list", getUser)
+				tags.GET("/list", s.ListTags)
 				//tags.POST("/rm", getUser)
 				//tags.POST("/update", getUser)
 			}

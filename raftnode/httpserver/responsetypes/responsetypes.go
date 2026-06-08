@@ -14,3 +14,13 @@ type ErrorInfo struct {
 type LeaderHttpAddrResponse struct {
 	Leader string `json:"leader"`
 }
+
+type TagInfo struct {
+	TagName string `json:"tagName"`
+	TagType string `json:"tagType"`
+	Visible string `json:"visible"`
+}
+
+type ListTagsResponse struct {
+	Tags *[]TagInfo `json:"tags"`
+}
