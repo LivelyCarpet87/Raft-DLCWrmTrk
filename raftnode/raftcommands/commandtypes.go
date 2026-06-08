@@ -17,3 +17,8 @@ type AddNodeCommand struct {
     RaftAddr string `json:"raftAddr"`
     HttpAddr string `json:"httpAddr"`
 }
+
+type TryAddTagCommand struct {
+    TagName string `json:"tagName"`
+    TagType string `json:"tagType"`
+}

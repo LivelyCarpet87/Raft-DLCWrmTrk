@@ -52,22 +52,25 @@ func New(raftNode *raftnode.Node, logger hclog.Logger) *HTTPServer {
 		// raftApi.POST("/list", s.ApplyCommand)
 	}
 
-	/* 
+	
 	api := router.Group("/api")
 	{
+		/*
 		filer := api.Group("/filer")
 		{
 			filer.GET("/:fileMD5", getUser)
 		}
+		*/
 		experiment := api.Group("/experiment")
 		{
 			tags := experiment.Group("/tags")
 			{
-				tags.POST("/create", listUsers)
-				tags.GET("/list", getUser)
-				tags.POST("/rm", getUser)
-				tags.POST("/update", getUser)
+				tags.POST("/create", s.TryAddTag)
+				//tags.GET("/list", getUser)
+				//tags.POST("/rm", getUser)
+				//tags.POST("/update", getUser)
 			}
+			/*
 			batches := experiment.Group("/batches")
 			{
 				batches.POST("/create", listUsers)
@@ -80,7 +83,9 @@ func New(raftNode *raftnode.Node, logger hclog.Logger) *HTTPServer {
 				videos.POST("/upload", a)
 				videos.GET("/status", a)
 			}
+			*/
 		}
+		/*
 		metrics := api.Group("/metrics")
 		{
 			metrics.GET("/health", listUsers)
@@ -91,7 +96,7 @@ func New(raftNode *raftnode.Node, logger hclog.Logger) *HTTPServer {
 			auth.GET("/login", listUsers)
 			auth.GET("/logout", getUser)
 		}
+		*/
 	}
-	*/
 	return s
 }

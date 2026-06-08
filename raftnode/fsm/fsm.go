@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"context"
+
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 
@@ -49,9 +51,10 @@ func InitSchema(db *sql.DB) error {
 		CHECK(status IN ('up','crowded','full','down'))
 	);
 
-	CREATE TABLE IF NOT EXISTS tag_pool (
+	CREATE TABLE IF NOT EXISTS tags (
 		tag_name TEXT NOT NULL,
 		type TEXT NOT NULL, -- primary|secondary|condition
+		visible INTEGER NOT NULL DEFAULT TRUE,
 		PRIMARY KEY(tag_name, type),
 		CHECK(type IN ('primary','secondary','condition'))
 	);
@@ -159,8 +162,16 @@ func InitSchema(db *sql.DB) error {
 		param_name TEXT PRIMARY KEY,
 		param_value BLOB NOT NULL
 	);
+
+	PRAGMA journal_mode=WAL;
 	`)
 	return err
+}
+
+func (f *FSM) GetReadOnlyTx(ctx context.Context) (*sql.Tx, error) {
+	return f.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly: true,
+	})
 }
 
 func (f *FSM) Apply(log *raft.Log) interface{} {
@@ -175,7 +186,8 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		return err
 	}
 
-	tx, err := f.db.Begin()
+	ctx := context.Background()
+	tx, err := f.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		f.logger.Error("begin tx failed", "err", err)
 		return err
@@ -203,6 +215,17 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 
+	case "TryAddTag":
+		var cmd raftcommands.TryAddTagCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		_, err := tx.Exec(`
+			INSERT OR IGNORE INTO tags(tag_name, type)
+			VALUES(?,?)
+		`, cmd.TagName, cmd.TagType)
+		if err != nil {
+			f.logger.Error("TryAddTag failed", "err", err)
+			return err
+		}
 	default:
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))
 	}

@@ -2,6 +2,7 @@ package raftnode
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"net"
@@ -130,6 +131,10 @@ func (n *Node) ProxyApply(cmdEnv raftcommands.CommandEnvelope) (error) {
 
 	}
 	return nil
+}
+
+func (n *Node) GetReadOnlyTx(ctx context.Context) (*sql.Tx, error) {
+	return n.FSM.GetReadOnlyTx(ctx)
 }
 
 func (n *Node) AddRaftNode(nodeID string, failureDomain string, raftAddr string, httpAddr string) error {
