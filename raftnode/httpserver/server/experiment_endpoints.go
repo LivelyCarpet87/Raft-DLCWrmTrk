@@ -33,7 +33,7 @@ func (s *HTTPServer) TryAddTag(c *gin.Context) {
 		"SELECT COUNT(tag_name) FROM tags WHERE tag_name=? AND type=?", 
 		tagName, tagType).Scan(&count)
 	if sqlQueryErr != nil {
-		s.logger.Error("SQLite3 Query Failed", "err", sqlQueryErr)
+		s.Logger.Error("SQLite3 Query Failed", "err", sqlQueryErr)
 		Fail(c, 503, "FSM_READ_ERR", "failed to count number of matching tags")
 		return
 	}
@@ -93,11 +93,11 @@ func (s *HTTPServer) ListTags(c *gin.Context) {
         query += " AND visible"
     }
 
-	s.logger.Trace("Running query", "query", query)
+	s.Logger.Trace("Running query", "query", query)
 
     rows, err := readOnlyTx.Query(query, args...)
     if err != nil {
-		s.logger.Error("SQLite3 Query Failed", "err", err)
+		s.Logger.Error("SQLite3 Query Failed", "err", err)
 		Fail(c, 503, "FSM_READ_ERR", "query to list tags failed")
         return
     }
@@ -107,7 +107,7 @@ func (s *HTTPServer) ListTags(c *gin.Context) {
     for rows.Next() {
         var t rt.TagInfo
         if err := rows.Scan(&t.TagName, &t.TagType, &t.Visible); err != nil {
-			s.logger.Error("SQLite3 Query Failed", "err", err)
+			s.Logger.Error("SQLite3 Query Failed", "err", err)
 			Fail(c, 503, "FSM_READ_ERR", "error parsing query results")
             return
         }
@@ -115,7 +115,7 @@ func (s *HTTPServer) ListTags(c *gin.Context) {
     }
 	readOnlyTx.Rollback()
 
-	s.logger.Trace("Found tags", "tags", tags)
+	s.Logger.Trace("Found tags", "tags", tags)
 	respData := rt.ListTagsResponse{
 		Tags: &tags,
 	}

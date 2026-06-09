@@ -11,7 +11,7 @@ import (
 type HTTPServer struct {
     RaftNode *raftnode.Node
 	Router *gin.Engine
-	logger hclog.Logger
+	Logger hclog.Logger
 }
 
 func OK(c *gin.Context, status int, data any) {
@@ -36,12 +36,12 @@ func (s *HTTPServer) Run(addr string) error {
     return s.Router.Run(addr)
 }
 
-func New(raftNode *raftnode.Node, logger hclog.Logger) *HTTPServer {
+func New(raftNode *raftnode.Node, Logger hclog.Logger) *HTTPServer {
 	router := gin.Default()
 	s := &HTTPServer{
     	RaftNode: raftNode,
 		Router: router,
-		logger: logger,
+		Logger: Logger,
 	}
 
 	raftApi := router.Group("/raft")
@@ -70,14 +70,15 @@ func New(raftNode *raftnode.Node, logger hclog.Logger) *HTTPServer {
 				//tags.POST("/rm", getUser)
 				//tags.POST("/update", getUser)
 			}
-			/*
+			
 			batches := experiment.Group("/batches")
 			{
-				batches.POST("/create", listUsers)
-				batches.GET("/list", getUser)
-				batches.GET("/get", getUser)
-				batches.POST("/update", getUser)
+				batches.POST("/create", s.AddBatch)
+				//batches.GET("/list", getUser)
+				//batches.GET("/get", getUser)
+				//batches.POST("/update", getUser)
 			}
+			/*
 			videos := experiment.Group("/videos")
 			{
 				videos.POST("/upload", a)

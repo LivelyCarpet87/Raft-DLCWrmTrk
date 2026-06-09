@@ -38,7 +38,7 @@ func (s *HTTPServer) ApplyCommand(c *gin.Context) {
 
 	var cmdEnv raftcommands.CommandEnvelope
 	if err := json.Unmarshal(commandBytes, &cmdEnv); err != nil {
-		s.logger.Error("Failed to unpack command envelope", "err", err)
+		s.Logger.Error("Failed to unpack command envelope", "err", err)
 		Fail(c, 400, "BAD_COMMAND_ENVELOPE", "unable to unmarshal")
 		return
 	}
@@ -46,7 +46,7 @@ func (s *HTTPServer) ApplyCommand(c *gin.Context) {
 	applyFuture :=  s.RaftNode.Raft.Apply(commandBytes, 5*time.Second)
 	applyErr := applyFuture.Error()
 	if (applyErr != nil){
-		s.logger.Error("Error applying command", "err",applyErr)
+		s.Logger.Error("Error applying command", "err",applyErr)
 		Fail(c, 503, "RAFT_ERROR", "error when applying command")
 		return
 	}
