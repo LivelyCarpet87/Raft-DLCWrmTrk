@@ -73,7 +73,7 @@ func (s *HTTPServer) JoinCluster(c *gin.Context) {
 		return
 	}
 
-	nodeID := c.PostForm("nodeID")
+	nodeID := c.PostForm("nodeID") // TODO: Check that nodeID is not duplicated already in cluster
 	failureDomain := c.PostForm("failureDomain")
     raftAddr := c.PostForm("raftAddr")
 	httpAddr := c.PostForm("httpAddr")

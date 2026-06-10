@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"io"
 	"os"
+    "path/filepath"
 	"time"
 	"encoding/json"
 
@@ -28,23 +29,37 @@ type Node struct {
 }
 
 
-func NewNode(id string, raftAddr string, failureDomain string, httpAddr string, db *sql.DB,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
+func NewNode(basePath string, id string, raftAddr string, failureDomain string, httpAddr string,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
 
 	raftLogger := rootLogger.Named("raft")
 	fsmLogger  := rootLogger.Named("fsm")
 
-	f := fsm.New(db, "./", fsmLogger)
+	raftPath := filepath.Join(basePath,"raft")
+	fsmPath := filepath.Join(basePath,"fsm")
 
-	logStore, _ := bolt.NewBoltStore(id + "-log.bolt")
-	stableStore, _ := bolt.NewBoltStore(id + "-stable.bolt")
+	dbPath := filepath.Join(fsmPath, "fsm.db")
+	db, _ := sql.Open("sqlite", dbPath)
+	fsm.InitSchema(db)
+	f := fsm.New(db, fsmPath, fsmLogger)
 
-	snapshots, err := raft.NewFileSnapshotStore("data/"+id, 2, os.Stdout)
+	logStore, _ := bolt.NewBoltStore(filepath.Join(raftPath,"log.bolt"))
+	stableStore, _ := bolt.NewBoltStore(filepath.Join(raftPath,"stable.bolt"))
+
+	snapshots, err := raft.NewFileSnapshotStore(filepath.Join(raftPath,"data"), 2, os.Stdout)
 	if err != nil {
 		return nil, err
 	}
 
-	addr, _ := net.ResolveTCPAddr("tcp", raftAddr)
-	transport, _ := raft.NewTCPTransport(raftAddr, addr, 3, 10*time.Second, os.Stdout)
+	addr, err := net.ResolveTCPAddr("tcp", raftAddr)
+	if err != nil {
+		raftLogger.Error("failed to bind to address", "raftAddr", raftAddr, "err", err)
+		return nil, err
+	}
+	transport, err := raft.NewTCPTransport(raftAddr, addr, 3, 10*time.Second, os.Stdout)
+	if err != nil {
+		raftLogger.Error("failed to create new TCP transport", "raftAddr", raftAddr, "err", err)
+		return nil, err
+	}
 
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(id)

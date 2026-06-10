@@ -26,6 +26,6 @@ type TryAddTagCommand struct {
 type AddVNodeCommand struct {
     NodeID string `json:"nodeID"`
     VNodeID string `json:"vNodeID"`
-    SizeLimit int `json:"sizeLimit"`
+    SizeLimit int64 `json:"sizeLimit"`
 }
 }

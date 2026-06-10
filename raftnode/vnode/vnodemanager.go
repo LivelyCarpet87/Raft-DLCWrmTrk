@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"io"
     "os"
-    //"path/filepath"
+    "path/filepath"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
@@ -18,13 +18,15 @@ import (
 )
 
 type VNodeManager struct {
+	VNodeDir string
 	VNodes map[string]*VNode
 	RaftNode *raftnode.Node
 	Logger hclog.Logger
 }
 
-func NewVNodeManager(raftNode *raftnode.Node, logger hclog.Logger) *VNodeManager {
+func NewVNodeManager(vNodeDir string, raftNode *raftnode.Node, logger hclog.Logger) *VNodeManager {
 	vnm := &VNodeManager{
+		VNodeDir: vNodeDir,
 		VNodes: make(map[string]*VNode),
 		RaftNode: raftNode,
 		Logger: logger,
@@ -32,7 +34,7 @@ func NewVNodeManager(raftNode *raftnode.Node, logger hclog.Logger) *VNodeManager
 	return vnm
 }
 
-func (vnm * VNodeManager) AddVNode(sizeLimit int) (string,error) {
+func (vnm * VNodeManager) AddVNode(sizeLimit int64) (string,error) {
 	vNodeID := uuid.NewString()
 	addVNodeCommand := rc.AddVNodeCommand{
 		NodeID: vnm.RaftNode.GetRaftNodeID(),
@@ -49,7 +51,7 @@ func (vnm * VNodeManager) AddVNode(sizeLimit int) (string,error) {
 		vnm.Logger.Error("Failed to add vNode", "vNodeID", vNodeID, "err", err)
 		return "", err
 	}
-	vnm.VNodes[vNodeID] = NewVNode(vNodeID, "./", vnm.RaftNode, vnm.Logger)
+	vnm.VNodes[vNodeID] = NewVNode(vNodeID, filepath.Join(vnm.VNodeDir, vNodeID), vnm.RaftNode, vnm.Logger)
 	return vNodeID, nil
 }
 

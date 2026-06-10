@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,11 +10,10 @@ import (
 	"strings"
 	"time"
 	"flag"
-	"fmt"
 	"net/http"
 	"net/url"
+    "path/filepath"
 
-	"raft-dlcwrmtrk/fsm"
 	"raft-dlcwrmtrk/raftnode"
 	"raft-dlcwrmtrk/httpserver/server"
 	rt "raft-dlcwrmtrk/httpserver/responsetypes"
@@ -53,82 +51,135 @@ func main() {
 	})
 	log := rootLogger.Named("main")
 
-	nodeID := 			flag.String("nodeID", "", "The ID for this node. Each node in the cluster must have a distinct ID.")
-	failureDomain := 	flag.String("fd", "", "The failure domain for this node. Nodes with the same listed failure domain should be more likely to fail together.")
-	ip_raft := 			flag.String("addr.raft", "0.0.0.0", "The IP address the raft node listens at.")
-	ip_http := 			flag.String("addr.http", "", "The IP address the http server listens at. Defaults to the value for addr.raft")
-	port_raft := 		flag.Int("port.raft", 6000, "The RAFT port for this node. Used for RAFT coordination within the cluster. Defaults to 6000.")
-	port_http := 		flag.Int("port.http", -1, "The http port for this node. Used by the HTTP server for the web API. Defaults to port.raft+2000.")
+	cfgPath := 			flag.String("config", "", "The path of the config file.")
+	genConfig := 		flag.Bool("generate-cfg", false, "Generate a default configuration file from template.")
 	bootstrap :=		flag.Bool("bootstrap", false, "Bootstrap when starting the cluster for the first time. ONLY 1 node can be bootstrapped.")
 	peersList :=		flag.String("peers", "", "A comma separated list of peers in the cluster. Ex. addr1:http_port1,addr2:http_port2")
 
 	flag.Parse()
 
-	if err := WriteConfig(path, cfg); err != nil {
 
+	if (*cfgPath == ""){
+		flag.Usage()
+		panic("config file is required.")
+	}
+	
+	if *genConfig {
+		cfgDir := filepath.Dir(*cfgPath)
+		info, err := os.Stat(cfgDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				log.Error("config file directory does not exist")
+				return
+			}
+			log.Error("error loading config file directory")
+			return
+		}
+
+		if !info.IsDir() {
+			log.Error("config file path invalid")
+			return
+		}
+		var absCfgPath string
+		if absCfgPath, err = filepath.Abs(*cfgPath); err != nil {
+			log.Error("failed to get absolute path of config file location.")
+			return
+		}
+		if err := WriteConfig(absCfgPath); err != nil {
+			log.Error("failed to generate config file", "err", err)
+			return
+		}
+		return
+	} else {
+		if info, err := os.Stat(*cfgPath); err != nil || info.IsDir() {
+			log.Error("cannot open config file", "err", err)
+			return
+		}
 	}
 
-	if (*nodeID == ""){
-		flag.Usage()
-		panic("nodeID is required.")
-	} else if (*failureDomain == ""){
-		flag.Usage()
-		panic("failure domain is required.")
-	} else if (*port_raft < 1 || *port_raft > 65535){
-		flag.Usage()
-		panic("port.raft must be between 1 and 65535.")
-	} else if (!*bootstrap && *peersList == ""){
-		flag.Usage()
-		panic("A peer list must be provided when not bootstrapping.")
+	cfg, err := LoadConfig(*cfgPath)
+	if err != nil {
+		log.Error("error loading config file", "err", err)
+		return
+	}
+	err = CheckConfig(cfg)
+	if err != nil {
+		log.Error("there was a problem in the config file", "err", err)
+		return
 	}
 
-	if (*ip_http == ""){
-		ip_http = ip_raft
-		log.Info("Using default value", "HTTP_IP",*ip_http)
-	}
+	log.Info("Using configuration file", "cfg",cfg)
 
-	log.Info("Using","RAFT port",*port_raft,)
-
-	if (*port_http == -1){
-		*port_http = *port_raft + 2000
-		log.Info("Using default value","HTTP_port",*port_http)
+	if *bootstrap || *peersList != "" {
+		StartRaft(*bootstrap, *peersList, cfg, rootLogger, log)
 	}
-	if (*port_http < 1 || *port_http > 65535){
-		flag.Usage()
-		panic("port.http must be between 1 and 65535.")
-	}
+}
 
+func CheckConfig(cfg *Config) error {
+	if cfg.NodeID == "NODE_ID_CHANGE_ME" {
+		return errors.New("Please set the `node_id` in the config file")
+	} else if cfg.FailureDomain == "CHANGE_ME_FAILURE_DOMAIN_Room_A113" {
+		return errors.New("Please set the `failure_domain` in the config file")
+	}
+	//TODO: Ensure base_path is valid
+	//TODO: Test sufficient storage space available
+	//TODO: Ensure the two addresses are valid
+	return nil
+}
+
+func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.Logger, log hclog.Logger) {	
 	leader := ""
-	peers := strings.Split(*peersList, ",")
-	raftAddr := fmt.Sprintf("%s:%d", *ip_raft, *port_raft)
-	httpAddr := fmt.Sprintf("%s:%d", *ip_http, *port_http)
+	peers := strings.Split(peersList, ",")
+
+	fsmDir := filepath.Join(cfg.BasePath, "fsm")
+	snapshotDir := filepath.Join(cfg.BasePath, "raft", "data")
+	vNodeDir := filepath.Join(cfg.BasePath, "vnodes")
 
 
-	if (!*bootstrap) {
+	if err := os.Mkdir(fsmDir, 0755); err != nil && !os.IsExist(err) {
+		log.Error("Failed to create directory to store FSM", "err", err)
+		return
+	}
+	if err := os.MkdirAll(snapshotDir, 0755); err != nil {
+		log.Error("Failed to create directory to store RAFT data", "err", err)
+		return
+	}
+	if err := os.MkdirAll(vNodeDir, 0755); err != nil {
+		log.Error("Failed to create directory to store vNode data", "err", err)
+		return
+	}
+
+	if (!bootstrap) {
 		leader_found, err := discoverLeader(peers)
 		if err != nil {
 			log.Error("Failed to find leader", "err",err)
+			return
 		}
 		leader = leader_found
 		log.Info("Found leader", "leader",leader)
 	}
 
-	db, _ := sql.Open("sqlite", *nodeID+".db")
-	fsm.InitSchema(db)
-
-	node, err := raftnode.NewNode(*nodeID, raftAddr, *failureDomain, httpAddr, db, rootLogger, *bootstrap)
+	log.Info("Starting RAFT", "RaftBindAddr", cfg.RaftBindAddr)
+	node, err := raftnode.NewNode(
+		cfg.BasePath,
+		cfg.NodeID, 
+		cfg.RaftBindAddr, 
+		cfg.FailureDomain, 
+		cfg.HttpBindAddr,
+		rootLogger, bootstrap)
 	if err != nil {
 		log.Error("Failed to create RAFT node", "err",err)
+		return
 	}
 
-	if !*bootstrap {
+	if !bootstrap {
 		time.Sleep(500 * time.Millisecond) // small safety delay
 	
 		form := url.Values{}
-		form.Add("nodeID", *nodeID)
-		form.Add("raftAddr", raftAddr)
-		form.Add("failureDomain", *failureDomain)
-		form.Add("httpAddr", httpAddr)
+		form.Add("nodeID", cfg.NodeID)
+		form.Add("raftAddr", cfg.RaftBindAddr)
+		form.Add("failureDomain", cfg.FailureDomain)
+		form.Add("httpAddr", cfg.HttpBindAddr)
 
 		resp, err := http.PostForm(
 			"http://"+leader+"/raft/join",
@@ -148,14 +199,20 @@ func main() {
 	time.Sleep(500 * time.Millisecond) // small safety delay
 	log.Info("Starting vNode manager")
 	vNodeLogger := rootLogger.Named("vNode")
-	vnm := vnode.NewVNodeManager(node, vNodeLogger)
-	vnm.AddVNode(1<<32)
-	vnm.AddVNode(1<<32)
+	vnm := vnode.NewVNodeManager(vNodeDir, node, vNodeLogger)
 
-	log.Info("Starting HTTP server", "httpAddr",httpAddr)
+	for _ = range cfg.Storage.NumVNodes {
+		vNodeID, err := vnm.AddVNode(cfg.Storage.MaxStorage) 
+		if err != nil {
+			log.Error("Error creating new vNode", "vNodeID", vNodeID, "err", err)
+		}
+		log.Info("Created new vNode", "vNodeID", vNodeID)
+	}
+
+	log.Info("Starting HTTP server", "HttpBindAddr",cfg.HttpBindAddr)
 	httpLogger := rootLogger.Named("httpServer")
 	s := server.New(node, httpLogger, vnm)
-	s.Run(httpAddr)
+	s.Run(cfg.HttpBindAddr)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
