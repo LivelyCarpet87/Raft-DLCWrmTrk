@@ -24,3 +24,4 @@ go.work
 raftnode/raft-dlcwrmtrk
 *.db-shm
 *.db-wal
+*.yaml
