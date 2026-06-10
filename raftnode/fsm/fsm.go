@@ -226,6 +226,19 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			f.logger.Error("TryAddTag failed", "err", err)
 			return err
 		}
+	
+	case "AddVNode":
+		var cmd raftcommands.AddVNodeCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		_, err := tx.Exec(`
+			INSERT INTO vnodes(vnode_id, node_id, status, storage_size)
+			VALUES(?,?,'up',?)
+		`, cmd.VNodeID, cmd.NodeID, cmd.SizeLimit)
+		if err != nil {
+			f.logger.Error("AddVNode failed", "err", err)
+			return err
+		}
+
 	default:
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))
 	}

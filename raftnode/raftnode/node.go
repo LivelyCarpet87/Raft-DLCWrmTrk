@@ -22,6 +22,7 @@ import (
 )
 
 type Node struct {
+	NodeID string
 	Raft *raft.Raft
 	FSM  *fsm.FSM
 }
@@ -89,6 +90,7 @@ func NewNode(id string, raftAddr string, failureDomain string, httpAddr string, 
 	}
 
 	return &Node{
+		NodeID: id,
 		Raft: r,
 		FSM:  f,
 	}, nil
@@ -180,4 +182,8 @@ func (n *Node) GetLeaderHttpAddr() (string, error) {
 		return "", errors.New("no leader")
 	}
 	return n.FSM.QueryHttpAddrFromRaftAddr(string(leaderRaftAddr))
+}
+
+func (n *Node) GetRaftNodeID() string {
+	return n.NodeID
 }

@@ -6,12 +6,14 @@ import (
 
 	"raft-dlcwrmtrk/raftnode"
 	rt "raft-dlcwrmtrk/httpserver/responsetypes"
+	"raft-dlcwrmtrk/vnode"
 )
 
 type HTTPServer struct {
     RaftNode *raftnode.Node
 	Router *gin.Engine
 	Logger hclog.Logger
+	VNodeManager *vnode.VNodeManager
 }
 
 func OK(c *gin.Context, status int, data any) {
@@ -36,12 +38,13 @@ func (s *HTTPServer) Run(addr string) error {
     return s.Router.Run(addr)
 }
 
-func New(raftNode *raftnode.Node, Logger hclog.Logger) *HTTPServer {
+func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) *HTTPServer {
 	router := gin.Default()
 	s := &HTTPServer{
     	RaftNode: raftNode,
 		Router: router,
 		Logger: Logger,
+		VNodeManager: vnm,
 	}
 
 	raftApi := router.Group("/raft")

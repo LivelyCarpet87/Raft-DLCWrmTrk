@@ -22,3 +22,10 @@ type TryAddTagCommand struct {
     TagName string `json:"tagName"`
     TagType string `json:"tagType"`
 }
+
+type AddVNodeCommand struct {
+    NodeID string `json:"nodeID"`
+    VNodeID string `json:"vNodeID"`
+    SizeLimit int `json:"sizeLimit"`
+}
+}

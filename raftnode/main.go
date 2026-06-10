@@ -17,9 +17,9 @@ import (
 
 	"raft-dlcwrmtrk/fsm"
 	"raft-dlcwrmtrk/raftnode"
-	// "raft-dlcwrmtrk/raftcommands"
 	"raft-dlcwrmtrk/httpserver/server"
 	rt "raft-dlcwrmtrk/httpserver/responsetypes"
+	"raft-dlcwrmtrk/vnode"
 
 	"github.com/hashicorp/go-hclog"
 
@@ -63,6 +63,11 @@ func main() {
 	peersList :=		flag.String("peers", "", "A comma separated list of peers in the cluster. Ex. addr1:http_port1,addr2:http_port2")
 
 	flag.Parse()
+
+	if err := WriteConfig(path, cfg); err != nil {
+
+	}
+
 	if (*nodeID == ""){
 		flag.Usage()
 		panic("nodeID is required.")
@@ -140,11 +145,16 @@ func main() {
 		}
 	}
 
-	
+	time.Sleep(500 * time.Millisecond) // small safety delay
+	log.Info("Starting vNode manager")
+	vNodeLogger := rootLogger.Named("vNode")
+	vnm := vnode.NewVNodeManager(node, vNodeLogger)
+	vnm.AddVNode(1<<32)
+	vnm.AddVNode(1<<32)
 
 	log.Info("Starting HTTP server", "httpAddr",httpAddr)
 	httpLogger := rootLogger.Named("httpServer")
-	s := server.New(node, httpLogger)
+	s := server.New(node, httpLogger, vnm)
 	s.Run(httpAddr)
 
 	sig := make(chan os.Signal, 1)
