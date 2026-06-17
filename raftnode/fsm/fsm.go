@@ -94,8 +94,9 @@ func InitSchema(db *sql.DB) error {
 		src_video_md5 TEXT NOT NULL
 	);
 
-	CREATE TABLE IF NOT EXISTS replications (
+	CREATE TABLE IF NOT EXISTS files (
 		file_md5 TEXT NOT NULL,
+    	mime_type TEXT NOT NULL,
 		vnode_id TEXT NOT NULL,
 		type TEXT NOT NULL, -- original|replica|temporary
 		status TEXT NOT NULL, -- pending|done|failed|timeout

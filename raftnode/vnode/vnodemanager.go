@@ -1,16 +1,15 @@
 package vnode
 
 import (
-	"crypto/md5"
+	"context"
 	"encoding/json"
-	"encoding/hex"
+	"errors"
 	"io"
-    "os"
     "path/filepath"
+	"database/sql"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
-	"github.com/gabriel-vasile/mimetype"
 
 	rc "raft-dlcwrmtrk/raftcommands"
 	"raft-dlcwrmtrk/raftnode"
@@ -51,59 +50,59 @@ func (vnm * VNodeManager) AddVNode(sizeLimit int64) (string,error) {
 		vnm.Logger.Error("Failed to add vNode", "vNodeID", vNodeID, "err", err)
 		return "", err
 	}
-	vnm.VNodes[vNodeID] = NewVNode(vNodeID, filepath.Join(vnm.VNodeDir, vNodeID), vnm.RaftNode, vnm.Logger)
+	vNode, err :=  NewVNode(vNodeID, filepath.Join(vnm.VNodeDir, vNodeID), vnm.RaftNode, vnm.Logger)
+	if err != nil {
+		return "", err
+	}
+	vnm.VNodes[vNodeID] = vNode
 	return vNodeID, nil
 }
 
-func (vnm *VNodeManager) IngestFile(fileData io.ReadSeeker) (
-	hash string, 
-	mimeType string,
+func (vnm *VNodeManager) IngestFile(fileData io.ReadSeeker, ext string, ctx context.Context) (
+	hash string,
 	vNodeID string,
 	fileSize int64,
 	err error,
 ) {
-	h := md5.New()
-    if err != nil && err != io.EOF {
-		vnm.Logger.Error("failed to get file header", "err", err)
-        return "", "", "", 0, err
-    }
-	mtype, err := mimetype.DetectReader(fileData)
-	if err != nil {
-		vnm.Logger.Error("failed to get detect MIME type", "err", err)
-        return "", "", "", 0, err
-    }
-	ext := mtype.Extension()
-
-	// Rewind
-    if _, err = fileData.Seek(0, io.SeekStart); err != nil {
-		vnm.Logger.Error("failed to get rewind seeker", "err", err)
-        return "", "", "", 0, err
-    }
-
-	tempFile, err := os.CreateTemp("", "upload-*")
-    if err != nil {
-		vnm.Logger.Error("failed to create tmp file", "err", err)
-        return "", "", "", 0, err
-    }
-	defer tempFile.Close()
-
-    tempFileName := tempFile.Name()
-    defer os.Remove(tempFileName)
-
-	mw := io.MultiWriter(tempFile, h)
-
-	fileSize, err = io.Copy(mw, fileData)
-    if err != nil {
-		vnm.Logger.Error("failed to copy file stream", "err", err)
-        return "", "", "", 0, err
-    }
-	hash = hex.EncodeToString(h.Sum(nil))
-
-	vNodeID = ""
-	if err = vnm.VNodes[vNodeID].IngestFile(tempFileName, hash, ext); err != nil {
-		vnm.Logger.Error("vNode failed to ingest file", "err", err)
-        return "", "", "", 0, err
+	readOnlyTx, err := vnm.RaftNode.GetReadOnlyTx(ctx)
+	defer readOnlyTx.Rollback()
+	if (err != nil) {
+		vnm.Logger.Error("failed get readOnlyTx", "err", err)
+		return "", "", 0, err
 	}
 
-	return hash, mimeType, vNodeID, fileSize, nil
+	err = readOnlyTx.QueryRowContext(
+		ctx,
+		`SELECT
+			v.vnode_id
+		FROM vnodes v
+		LEFT JOIN files r
+			ON r.vnode_id = v.vnode_id
+		AND r.status IN ('pending', 'done')
+		WHERE v.node_id = ?
+		AND v.status IN ('up', 'crowded')
+		GROUP BY v.vnode_id, v.storage_size
+		ORDER BY v.storage_size - COALESCE(SUM(r.file_size), 0)  DESC
+		LIMIT 1;`,
+		vnm.RaftNode.GetRaftNodeID()).Scan(
+		&vNodeID,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			vnm.Logger.Error("failed to find suitable vNode. All vNodes are full")
+        	return "", "", 0, errors.New("all vNodes are full")
+		}
+		vnm.Logger.Error("failed to find suitable vNode", "err", err)
+		return "", "",  0, errors.New("could not find a suitable vNode")
+	}
+
+	if hash, fileSize, err = vnm.VNodes[vNodeID].IngestFile(fileData, ext); err != nil {
+		vnm.Logger.Error("vNode failed to ingest file", "err", err)
+        return "", "", 0, err
+	}
+
+	return hash, vNodeID, fileSize, nil
 }
+
+	}
+
