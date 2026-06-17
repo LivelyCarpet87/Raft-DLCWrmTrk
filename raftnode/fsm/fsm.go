@@ -102,7 +102,6 @@ func InitSchema(db *sql.DB) error {
 		status TEXT NOT NULL, -- pending|done|failed|timeout
 		last_heartbeat_time TEXT NOT NULL,
 		file_size INTEGER NOT NULL,
-		PRIMARY KEY(file_md5, vnode_id),
 		CHECK(type IN ('original','replica','temporary')),
 		CHECK(status IN ('pending','done','failed','timeout'))
 	);
@@ -164,6 +163,15 @@ func InitSchema(db *sql.DB) error {
 		param_value BLOB NOT NULL
 	);
 
+	INSERT OR IGNORE INTO params(param_name,param_value)
+	VALUES 
+		('workerHeartbeatTimeout',30), -- send heartbeat every 10 seconds
+		('vNodeTransferTimeout',60), -- trigger by node, then runs every 30 seconds
+		('videoJobTimeout',300), -- constant polling
+		('normJobTimeout',120), -- constant polling
+		('fileReplicaCount', 3); -- number of replicas to make
+		('version', "1.0"); -- release version (for future migration detection)
+
 	PRAGMA journal_mode=WAL;
 	`)
 	return err
@@ -173,6 +181,211 @@ func (f *FSM) GetReadOnlyTx(ctx context.Context) (*sql.Tx, error) {
 	return f.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly: true,
 	})
+}
+
+type vNodeChoice struct {
+	vNodeID string
+	failureDomain string
+	status string
+}
+
+func VNodeConstraintStrict(chosen []vNodeChoice, newChoice vNodeChoice) bool {
+	if !VNodeConstraintAllowCrowded(chosen, newChoice) {
+		return false
+	} else if newChoice.status == "crowded" {
+		return false
+	}
+	return true
+}
+
+func VNodeConstraintAllowCrowded(chosen []vNodeChoice, newChoice vNodeChoice) bool {
+	failureDomainSet := make(map[string]struct{})
+
+	for _, c := range chosen {
+		failureDomainSet[c.failureDomain] = struct{}{}
+	}
+	if !VNodeConstraintRelaxFailureDomain(chosen, newChoice) {
+		return false
+	} else if _, exists := failureDomainSet[newChoice.failureDomain]; exists {
+		return false
+	}
+	return true
+}
+
+func VNodeConstraintRelaxFailureDomain(chosen []vNodeChoice, newChoice vNodeChoice) bool {
+	vNodeIDSet := make(map[string]struct{})
+
+	for _, c := range chosen {
+		vNodeIDSet[c.vNodeID] = struct{}{}
+	}
+	if _, exists := vNodeIDSet[newChoice.vNodeID]; exists {
+		return false
+	}
+	return true
+}
+
+func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize int64, 
+	creationTime string, tx *sql.Tx, logger hclog.Logger) error {
+	if _, err := tx.Exec(`
+		INSERT INTO files(file_md5, mime_type, vnode_id, type, status, 
+		last_heartbeat_time,file_size)
+		VALUES(?,?,?,'original','done',?,?)
+		`, fileMD5, mimeType, seedVNodeID, creationTime, filesize); err != nil {
+		logger.Error("failed to record seed file upload", "err", err)
+		return err
+	}
+	var seedFailureDomain string
+	var seedStatus string
+	if err := tx.QueryRow(`
+	SELECT n.failure_domain, v.status FROM vnodes v
+	JOIN nodes n
+		ON n.node_id = v.node_id
+	WHERE v.vnode_id = ?
+	`, seedVNodeID).Scan(&seedFailureDomain, & seedStatus); err != nil {
+		logger.Error("failed to find failure domain of vNode", "err", err)
+		return err
+	}
+
+	var fileReplicaCount int
+	if err := tx.QueryRow(
+			"SELECT param_value FROM params WHERE param_name='fileReplicaCount'",
+		).Scan(&fileReplicaCount); err != nil {
+		logger.Error("failed to read param fileReplicaCount", "err", err)
+		return err
+	}
+
+	var existingCopies int
+	if err := tx.QueryRow(
+			"SELECT COUNT(file_md5) FROM files WHERE file_md5=? AND status IN ('done', 'pending')",
+		fileMD5).Scan(&existingCopies); err != nil {
+		logger.Error("failed to count existing copies of file", 
+		"err", err, "fileMD5", fileMD5)
+		return err
+	}
+	if (existingCopies >= fileReplicaCount + 1) {
+		logger.Info("sufficient existing copies of file, not replicating", 
+		"fileMD5", fileMD5, "existingCopies", existingCopies)
+		return nil
+	}
+
+	ringQuery := `
+	SELECT
+		v.vnode_id,
+		n.failure_domain,
+		v.status
+	FROM vnodes v
+	JOIN nodes n
+		ON n.node_id = v.node_id
+	WHERE v.status != 'down'
+	AND v.status NOT IN ('full', 'down')
+	ORDER BY
+		CASE
+			WHEN v.vnode_id > ? THEN 0
+			ELSE 1
+		END,
+		v.vnode_id;`
+	var selectedVNodes []vNodeChoice
+
+	selectedVNodes = append(selectedVNodes, vNodeChoice{
+		vNodeID: seedVNodeID,
+		failureDomain: seedFailureDomain,
+		status: seedStatus,
+	})
+	constraints := []func([]vNodeChoice, vNodeChoice) bool {
+		VNodeConstraintStrict,
+		VNodeConstraintAllowCrowded,
+		VNodeConstraintRelaxFailureDomain,
+	}
+	for cn, constraint := range constraints {
+		if cn == 1 {
+			logger.Warn("allowing crowded during walk along vNode ring")
+		} else if cn == 2 {
+			logger.Warn("allowing failure domain repeats during walk along vNode ring")
+		}
+		rows, err := tx.Query(ringQuery, seedVNodeID)
+		if err != nil {
+			logger.Error("failed to walk vNode ring", "err", err)
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			if len(selectedVNodes) == fileReplicaCount+1 {
+				break
+			}
+
+			var choice vNodeChoice
+			if err := rows.Scan(
+				&choice.vNodeID, 
+				&choice.failureDomain, 
+				&choice.status,
+				); err != nil {
+				logger.Error("ring walk SQLite3 query row read failed", 
+				"err", err)
+				return err
+			}
+			if constraint(selectedVNodes, choice) {
+				selectedVNodes = append(selectedVNodes, choice)
+			}
+		}
+		if len(selectedVNodes) == fileReplicaCount+1 {
+			break
+		}
+		rows.Close()
+	}
+	if len(selectedVNodes) != fileReplicaCount+1 {
+		logger.Error("failed to select sufficient sites on ring", 
+		"fileReplicaCount", fileReplicaCount)
+		return errors.New("failed to select sufficient sites on ring")
+	}
+
+	// Skip first element because seed is already done
+	for _ , c := range selectedVNodes[1:] { 
+		if _, err := tx.Exec(`
+			INSERT INTO files(file_md5, mime_type, vnode_id, type, status, 
+			last_heartbeat_time,file_size)
+			VALUES(?,?,?,'replica','pending',?,?)
+			`, fileMD5, mimeType, c.vNodeID, creationTime, filesize); err != nil {
+			logger.Error("failed to record seed file upload", "err", err)
+			return err
+		}
+		var  maxStorage int64
+		var usedStorage int64
+		if err := tx.QueryRow(`
+			SELECT
+				v.storage_size,
+				COALESCE(SUM(r.file_size), 0) AS storage_remaining
+			FROM vnodes v
+			LEFT JOIN files r
+				ON r.vnode_id = v.vnode_id
+			AND r.status IN ('pending', 'done')
+			WHERE v.vnode_id = ?
+			LIMIT 1;`, c.vNodeID).Scan(&maxStorage, &usedStorage); err != nil {
+			logger.Error("failed to get vNode usage stats", "err", err)
+			return err
+		}
+		if usedStorage >= maxStorage {
+			if _, err := tx.Exec(`
+				UPDATE vnodes
+				SET status = 'full'
+				WHERE vnode_id = ?
+				`, c.vNodeID); err != nil {
+				logger.Error("failed to record new vNode state as full", "err", err)
+				return err
+			}
+		} else if usedStorage >= maxStorage /10 * 9 {
+			if _, err := tx.Exec(`
+				UPDATE vnodes
+				SET status = 'crowded'
+				WHERE vnode_id = ?
+				`, c.vNodeID); err != nil {
+				logger.Error("failed to record new vNode state as crowded", "err", err)
+				return err
+			}
+		}
+		
+	}
+
+	return nil
 }
 
 func (f *FSM) Apply(log *raft.Log) interface{} {
@@ -237,6 +450,35 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		`, cmd.VNodeID, cmd.NodeID, cmd.SizeLimit)
 		if err != nil {
 			f.logger.Error("AddVNode failed", "err", err)
+			return err
+		}
+
+	case "AddBatch":
+		var cmd raftcommands.AddBatchCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		if _, err := tx.Exec(`
+			INSERT INTO batches(batch_uid, batch_name, creation_time, 
+			primary_tag, secondary_tag, norm_md5, note)
+			VALUES(?,?,?,?,?,?,?)
+			`, cmd.BatchUID, cmd.BatchName, cmd.CreationTime, 
+			cmd.PrimaryTag, cmd.SecondaryTag, 
+			cmd.NormMD5, cmd.Note); err != nil {
+			f.logger.Error("AddBatch failed to create batch", "err", err)
+			return err
+		}
+		for _, cond := range cmd.Conditions {
+			if _, err := tx.Exec(`
+				INSERT INTO conditions(batch_uid, tag_name)
+				VALUES(?,?)
+				`, cmd.BatchUID, cond); err != nil {
+				f.logger.Error("AddBatch failed to record condition", "err", err)
+				return err
+			}
+		}
+		
+		if err := SpreadFile(cmd.VNodeID, cmd.NormMD5, "image/png", cmd.NormFileSize, 
+			cmd.CreationTime, tx, f.logger); err != nil {
+			f.logger.Error("AddBatch failed replicate files", "err", err)
 			return err
 		}
 

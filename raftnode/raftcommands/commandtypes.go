@@ -28,4 +28,16 @@ type AddVNodeCommand struct {
     VNodeID string `json:"vNodeID"`
     SizeLimit int64 `json:"sizeLimit"`
 }
+
+type AddBatchCommand struct {
+    BatchUID string `json:"batchUID"`
+    CreationTime string `json:"creationTime"`
+    PrimaryTag string `json:"primaryTag"`
+    SecondaryTag string `json:"secondaryTag"`
+    BatchName string `json:"batchName"`
+    VNodeID string `json:"vNodeID"`
+    NormMD5 string `json:"normMD5"`
+    NormFileSize int64 `json:"normFileSize"`
+    Conditions []string `json:"conditions"`
+    Note string `json:"note"`
 }

@@ -2,8 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"io"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/gabriel-vasile/mimetype"
 
 	"raft-dlcwrmtrk/raftcommands"
 	rt "raft-dlcwrmtrk/httpserver/responsetypes"
@@ -121,5 +125,134 @@ func (s *HTTPServer) ListTags(c *gin.Context) {
 	}
 
 	OK(c, 200, respData)
+	return
+}
+
+func (s *HTTPServer) AddBatch(c *gin.Context) {
+	batchUID := uuid.NewString()
+	creationTime := time.Now().UTC().Format(time.RFC3339)
+	primaryTag := c.PostForm("primaryTag")
+	secondaryTag := c.PostForm("secondaryTag")
+	conditionsList := c.PostForm("conditions")
+	batchName := c.PostForm("batchName")
+	note := c.PostForm("note")
+	fileHeader, err := c.FormFile("normFile")
+    if err != nil {
+      	Fail(c, 400, "BAD_INPUT", "unable to load normalizer image")
+      	return
+    }
+
+	if conditionsList == "" {
+		Fail(c, 400, "BAD_INPUT", "conditions cannot be empty")
+      	return
+	}
+	var conditions []string
+	
+	if err := json.Unmarshal([]byte(conditionsList), &conditions); err != nil {
+		Fail(c, 400, "BAD_INPUT", "could not parse conditions list")
+      	return
+	}
+
+	readOnlyTx, err := s.RaftNode.GetReadOnlyTx(c.Request.Context())
+	defer readOnlyTx.Rollback()
+	if (err != nil) {
+		Fail(c, 503, "FSM_READ_ERR", "failed to get read-only tx")
+		return
+	}
+
+	var count int
+	if err := readOnlyTx.QueryRowContext(
+		c.Request.Context(), 
+		"SELECT COUNT(tag_name) FROM tags WHERE tag_name=? AND type='primary'", 
+		primaryTag).Scan(&count); err != nil {
+		s.Logger.Error("SQLite3 Query Failed", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "failed to count number of matching tags")
+		return
+	}
+	if count != 1 {
+		Fail(c, 400, "BAD_INPUT", "primary tag provided does not exist")
+		return
+	}
+	if err := readOnlyTx.QueryRowContext(
+		c.Request.Context(), 
+		"SELECT COUNT(tag_name) FROM tags WHERE tag_name=? AND type='secondary'", 
+		secondaryTag).Scan(&count); err != nil {
+		s.Logger.Error("SQLite3 Query Failed", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "failed to count number of matching tags")
+		return
+	}
+	if count != 1 {
+		Fail(c, 400, "BAD_INPUT", "primary tag provided does not exist")
+		return
+	}
+	for condTag_i := range conditions {
+		condTag := conditions[condTag_i]
+		if err := readOnlyTx.QueryRowContext(
+			c.Request.Context(), 
+			"SELECT COUNT(tag_name) FROM tags WHERE tag_name=? AND type='condition'", 
+			condTag).Scan(&count); err != nil {
+			s.Logger.Error("SQLite3 Query Failed", "err", err)
+			Fail(c, 503, "FSM_READ_ERR", "failed to count number of matching tags")
+			return
+		}
+		if count != 1 {
+			Fail(c, 400, "BAD_INPUT", "condition tag "+condTag+" provided does not exist")
+			return
+		}
+	}
+
+	fileData, err := fileHeader.Open()
+	if err != nil {
+		Fail(c, 400, "BAD_INPUT", "failed to open uploaded file")
+		return
+	}
+	defer fileData.Close()
+	mtype, err := mimetype.DetectReader(fileData)
+	if err != nil {
+		s.Logger.Error("failed to get detect MIME type", "err", err)
+		Fail(c, 400, "BAD_INPUT", "failed to decode type of uploaded file")
+        return
+    }
+	
+	if mtype.String() != "image/png" {
+		Fail(c, 400, "BAD_INPUT", "expected PNG file for normalizer image")
+        return
+	}
+
+	// Rewind
+    if _, err = fileData.Seek(0, io.SeekStart); err != nil {
+		s.Logger.Error("failed to get rewind seeker", "err", err)
+		Fail(c, 400, "BAD_INPUT", "failed to open uploaded file")
+        return 
+    }
+
+	normMD5, vNodeID, fileSize, err := s.VNodeManager.IngestFile(fileData, ".png", c.Request.Context())
+	if err != nil {
+		Fail(c, 507, "FILE_ERROR", "failed to save uploaded file")
+		return
+	}
+	addBatchCommand := raftcommands.AddBatchCommand{
+		BatchUID: batchUID,
+    	CreationTime: creationTime,
+    	PrimaryTag: primaryTag,
+    	SecondaryTag: secondaryTag,
+    	BatchName: batchName,
+		VNodeID: vNodeID,
+    	NormMD5: normMD5,
+    	NormFileSize: fileSize,
+    	Conditions: conditions,
+    	Note: note,
+	}
+	cmdData, _ := json.Marshal(addBatchCommand)
+	cmdEnv := raftcommands.CommandEnvelope{
+		Command: "AddBatch",
+		Data: cmdData,
+	}
+	if err := s.RaftNode.ProxyApply(cmdEnv); err != nil {
+		Fail(c, 503, "RAFT_ERR", "failed to apply command")
+		return
+	}
+
+	OK(c, 201,nil)
 	return
 }
