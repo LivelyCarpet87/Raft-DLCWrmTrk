@@ -104,5 +104,19 @@ func (vnm *VNodeManager) IngestFile(fileData io.ReadSeeker, ext string, ctx cont
 	return hash, vNodeID, fileSize, nil
 }
 
+func (vnm *VNodeManager) GetFilename(fileMD5 string, mimeType string) string {
+	var ext string
+	switch mimeType {
+		case "image/png":
+			ext=".png"
+		case "video/mp4":
+			ext=".mp4"
+		default:
+			ext=""
 	}
+	return fileMD5+ext
+}
 
+func (vnm *VNodeManager) Serve(vNodeID string, filename string) (io.Reader, error) {
+	return vnm.VNodes[vNodeID].Serve(filename)
+} 

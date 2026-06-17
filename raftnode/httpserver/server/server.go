@@ -30,10 +30,6 @@ func Fail(c *gin.Context, status int, code, message string) {
 	})
 }
 
-
-
-
-
 func (s *HTTPServer) Run(addr string) error {
     return s.Router.Run(addr)
 }
@@ -58,12 +54,12 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 	
 	api := router.Group("/api")
 	{
-		/*
+		
 		filer := api.Group("/filer")
 		{
-			filer.GET("/:fileMD5", getUser)
+			filer.GET("/:fileMD5", s.serveFile)
 		}
-		*/
+		
 		experiment := api.Group("/experiment")
 		{
 			tags := experiment.Group("/tags")

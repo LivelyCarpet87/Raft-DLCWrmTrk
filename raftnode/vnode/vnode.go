@@ -77,3 +77,31 @@ func (vn *VNode) IngestFile(fileData io.ReadSeeker, ext string) (
 	}
 	return hash, fileSize, nil
 }
+
+func (vn *VNode) Serve(filename string) (io.Reader, error) {
+	dataPath := filepath.Join(vn.vNodePath, "data", filename)
+	_, err := os.Stat(dataPath)
+	if err == nil {
+		return os.Open(dataPath)
+	} else if os.IsNotExist(err) {
+		ingestPath := filepath.Join(vn.vNodePath, "ingest", filename)
+		_, err := os.Stat(ingestPath)
+		if os.IsNotExist(err){
+			vn.Logger.Error("file does not exist", "filename", filename)
+			return nil, err
+		} else if err != nil {
+			vn.Logger.Error("failed to open ingest file for lazy-move", "ingestPath", ingestPath, "err", err)
+			return nil, err
+		}
+		if err := os.Rename(ingestPath, dataPath); err != nil {
+			if !os.IsExist(err) {
+				vn.Logger.Error("failed to lazy-move ingest file","ingestPath", ingestPath, "dataPath", dataPath)
+				return nil, err
+			}
+		}
+		return os.Open(dataPath)
+	} else {
+		return nil, err
+	}
+}
+
