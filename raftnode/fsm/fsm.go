@@ -472,7 +472,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 				INSERT INTO conditions(batch_uid, tag_name)
 				VALUES(?,?)
 				`, cmd.BatchUID, cond); err != nil {
-				f.logger.Error("AddBatch failed to record condition", "err", err)
+				f.logger.Error("AddBatch failed to record condition", "err", err, "cond", cond)
 				return err
 			}
 		}
@@ -485,8 +485,8 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 
 		// TODO: Enroll normalizer image worker
 
-	case "FileStatusUpdate":
-		var cmd raftcommands.FileStatusUpdateCommand
+	case "UpdateFileStatus":
+		var cmd raftcommands.UpdateFileStatusCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)
 		if _, err := tx.Exec(`
 			UPDATE files

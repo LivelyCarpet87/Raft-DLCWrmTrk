@@ -42,7 +42,7 @@ type AddBatchCommand struct {
     Note string `json:"note"`
 }
 
-type FileStatusUpdateCommand struct {
+type UpdateFileStatusCommand struct {
     FileMD5 string `json:"FileMD5"`
     VNodeID string `json:"vNodeID"`
     Status string `json:"status"`

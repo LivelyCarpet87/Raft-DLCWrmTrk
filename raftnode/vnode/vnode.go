@@ -174,7 +174,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 			_ = os.Remove(ingestPath)
 			continue
 		}
-		statusUpdateCommand := rc.FileStatusUpdateCommand{
+		statusUpdateCommand := rc.UpdateFileStatusCommand{
 			FileMD5: expectedHash,
 			VNodeID: vn.vNodeID,
 			Status: "done",
@@ -182,7 +182,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		}
 		cmdData, _ := json.Marshal(statusUpdateCommand)
 		cmdEnv := rc.CommandEnvelope{
-			Command: "FileStatusUpdate",
+			Command: "UpdateFileStatus",
 			Data: cmdData,
 		}
 		if err := vn.RaftNode.ProxyApply(cmdEnv); err != nil {
@@ -261,7 +261,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			vn.Logger.Error("failed to read file from http req", "getFileUrl", getFileUrl, "err", err)
-			statusUpdateCommand := rc.FileStatusUpdateCommand{
+			statusUpdateCommand := rc.UpdateFileStatusCommand{
 				FileMD5: fileMD5,
 				VNodeID: vn.vNodeID,
 				Status: "failed",
@@ -269,7 +269,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 			}
 			cmdData, _ := json.Marshal(statusUpdateCommand)
 			cmdEnv := rc.CommandEnvelope{
-				Command: "FileStatusUpdate",
+				Command: "UpdateFileStatus",
 				Data: cmdData,
 			}
 			if err := vn.RaftNode.ProxyApply(cmdEnv); err != nil {
@@ -283,7 +283,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		hash, _, err := vn.IngestFile(r, mimeType)
 		if err != nil || fileMD5 != hash {
 			vn.Logger.Error("failed to ingest file from http req", "getFileUrl", getFileUrl, "err", err)
-			statusUpdateCommand := rc.FileStatusUpdateCommand{
+			statusUpdateCommand := rc.UpdateFileStatusCommand{
 				FileMD5: fileMD5,
 				VNodeID: vn.vNodeID,
 				Status: "failed",
@@ -291,7 +291,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 			}
 			cmdData, _ := json.Marshal(statusUpdateCommand)
 			cmdEnv := rc.CommandEnvelope{
-				Command: "FileStatusUpdate",
+				Command: "UpdateFileStatus",
 				Data: cmdData,
 			}
 			if err := vn.RaftNode.ProxyApply(cmdEnv); err != nil {
@@ -299,7 +299,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 			}
 			continue
 		}
-		statusUpdateCommand := rc.FileStatusUpdateCommand{
+		statusUpdateCommand := rc.UpdateFileStatusCommand{
 			FileMD5: fileMD5,
 			VNodeID: vn.vNodeID,
 			Status: "done",
@@ -307,7 +307,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		}
 		cmdData, _ := json.Marshal(statusUpdateCommand)
 		cmdEnv := rc.CommandEnvelope{
-			Command: "FileStatusUpdate",
+			Command: "UpdateFileStatus",
 			Data: cmdData,
 		}
 		if err := vn.RaftNode.ProxyApply(cmdEnv); err != nil {
