@@ -124,24 +124,26 @@ func InitSchema(db *sql.DB) error {
 	);
 
 	CREATE TABLE IF NOT EXISTS video_jobs (
-		job_uid TEXT PRIMARY KEY,
 		enrollment_time TEXT NOT NULL,
 		file_md5 TEXT NOT NULL,
+		attempt_counter INTEGER NOT NULL, -- Index starts at 1
 		status TEXT NOT NULL, -- pending|assigned|done|failed|crashed|timeout
 		assignment_time TEXT,
 		worker_uid TEXT,
 		end_time TEXT,
+		PRIMARY KEY(file_md5, attempt_counter),
 		CHECK(status IN ('pending','assigned','done','failed','crashed','timeout'))
 	);
 
 	CREATE TABLE IF NOT EXISTS norm_jobs (
-		job_uid TEXT PRIMARY KEY,
 		enrollment_time TEXT NOT NULL,
 		file_md5 TEXT NOT NULL,
+		attempt_counter INTEGER NOT NULL, -- Index starts at 1
 		status TEXT NOT NULL, -- pending|assigned|done|failed|crashed|timeout
 		assignment_time TEXT,
 		worker_uid TEXT,
 		end_time TEXT,
+		PRIMARY KEY(file_md5, attempt_counter),
 		CHECK(status IN ('pending','assigned','done','failed','crashed','timeout'))
 	);
 
@@ -483,7 +485,15 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 
-		// TODO: Enroll normalizer image worker
+		if _, err := tx.Exec(`
+			INSERT OR IGNORE INTO norm_jobs(enrollment_time, 
+			file_md5, attempt_counter, 
+			status)
+			VALUES(?,?,1,'pending')
+			`, cmd.CreationTime, cmd.NormMD5); err != nil {
+			f.logger.Error("AddBatch failed to enroll norm job", "err", err)
+			return err
+		}
 
 	case "UpdateFileStatus":
 		var cmd raftcommands.UpdateFileStatusCommand
@@ -548,6 +558,16 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			f.logger.Error("AddSrcVideo failed replicate files", "err", err)
 			return err
 		}
+		if _, err := tx.Exec(`
+			INSERT OR IGNORE INTO video_jobs(enrollment_time, 
+			file_md5, attempt_counter, 
+			status)
+			VALUES(?,?,1,'pending')
+			`, cmd.UploadTime, cmd.VideoMD5); err != nil {
+			f.logger.Error("AddSrcVideo failed to enroll video job", "err", err)
+			return err
+		}
+
 	default:
 		f.logger.Error("unknown raft command", "cmd",cmdEnv.Command)
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))
