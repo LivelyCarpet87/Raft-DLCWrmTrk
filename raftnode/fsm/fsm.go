@@ -531,6 +531,23 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 				return err
 			}
 		}
+	case "AddSrcVideo":
+		var cmd raftcommands.AddSrcVideoCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		if _, err := tx.Exec(`
+			INSERT INTO src_videos(src_video_md5, batch_uid, 
+			video_name, upload_time)
+			VALUES(?,?,?,?)
+			`, cmd.VideoMD5, cmd.BatchUID, 
+			cmd.VideoName, cmd.UploadTime); err != nil {
+			f.logger.Error("AddSrcVideo failed to create video entry", "err", err)
+			return err
+		}
+		if err := SpreadFile(cmd.VNodeID, cmd.VideoMD5, "video/mp4", cmd.VideoFileSize, 
+			cmd.UploadTime, tx, f.logger); err != nil {
+			f.logger.Error("AddSrcVideo failed replicate files", "err", err)
+			return err
+		}
 	default:
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))
 	}

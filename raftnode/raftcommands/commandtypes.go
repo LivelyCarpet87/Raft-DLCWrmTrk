@@ -55,3 +55,12 @@ type UpdateBatchCommand struct {
     Conditions []string `json:"conditions"`
     Note string `json:"note"`
 }
+
+type AddSrcVideoCommand struct {
+    BatchUID string `json:"batchUID"`
+    VideoMD5 string `json:"videoMD5"`
+    VideoName string `json:"videoName"`
+    UploadTime string `json:"uploadTime"`
+    VNodeID string `json:"vNodeID"`
+    VideoFileSize int64 `json:"videoFileSize"`
+}

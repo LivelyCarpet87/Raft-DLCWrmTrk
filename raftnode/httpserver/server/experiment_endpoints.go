@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"io"
+    "path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -333,4 +335,95 @@ func (s *HTTPServer) AddBatch(c *gin.Context) {
 
 	OK(c, 201,rt.CreateBatchResponse{BatchUID:batchUID})
 	return
+}
+
+func (s *HTTPServer) AddSrcVideo(c *gin.Context) {
+	batchUID :=  c.PostForm("batchUID")
+	uploadTime := time.Now().UTC().Format(time.RFC3339)
+	fileHeader, err := c.FormFile("videoFile")
+    if err != nil {
+      	Fail(c, 400, "BAD_INPUT", "unable to load video file")
+      	return
+    }
+
+	if batchUID == "" {
+      	Fail(c, 400, "BAD_INPUT", "batchUID cannot be empty")
+      	return
+    }
+
+	readOnlyTx, err := s.RaftNode.GetReadOnlyTx(c.Request.Context())
+	defer readOnlyTx.Rollback()
+	if (err != nil) {
+		Fail(c, 503, "FSM_READ_ERR", "failed to get read-only tx")
+		return
+	}
+	var count int
+	if err := readOnlyTx.QueryRowContext(	
+		c.Request.Context(), 
+		"SELECT COUNT(batch_name) FROM batches WHERE batch_uid=?", 
+		batchUID).Scan(&count); err != nil {
+		s.Logger.Error("SQLite3 Query Failed", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "failed to check if batch_uid exists")
+		return
+	}
+	if count != 1 {
+		Fail(c, 404, "BATCH_NOT_FOUND", "batchUID not found")
+		return
+	}
+
+	fileData, err := fileHeader.Open()
+	if err != nil {
+		Fail(c, 400, "BAD_INPUT", "failed to open uploaded file")
+		return
+	}
+	defer fileData.Close()
+	mtype, err := mimetype.DetectReader(fileData)
+	if err != nil {
+		s.Logger.Error("failed to get detect MIME type", "err", err)
+		Fail(c, 400, "BAD_INPUT", "failed to decode type of uploaded file")
+        return
+    }
+	
+	filename := strings.TrimSpace(filepath.Base(fileHeader.Filename))
+	
+	mimeType := mtype.String()
+	if mimeType != "video/mp4" {
+		Fail(c, 400, "BAD_INPUT", "expected MP4 file for videos")
+        return
+	}
+
+	// Rewind
+    if _, err = fileData.Seek(0, io.SeekStart); err != nil {
+		s.Logger.Error("failed to get rewind seeker", "err", err)
+		Fail(c, 400, "BAD_INPUT", "failed to open uploaded file")
+        return 
+    }
+
+	vidMD5, vNodeID, fileSize, err := s.VNodeManager.IngestFile(fileData, mimeType, c.Request.Context())
+	if err != nil {
+		Fail(c, 507, "FILE_ERROR", "failed to save uploaded file")
+		return
+	}
+	
+	addSrcVideoCommand := raftcommands.AddSrcVideoCommand{
+		BatchUID: batchUID,
+		VideoMD5: vidMD5,
+		VideoName: filename,
+    	UploadTime: uploadTime,
+		VNodeID: vNodeID,
+    	VideoFileSize: fileSize,
+	}
+	cmdData, _ := json.Marshal(addSrcVideoCommand)
+	cmdEnv := raftcommands.CommandEnvelope{
+		Command: "AddSrcVideo",
+		Data: cmdData,
+	}
+	if err := s.RaftNode.ProxyApply(cmdEnv); err != nil {
+		Fail(c, 503, "RAFT_ERR", "failed to apply command")
+		return
+	}
+
+	OK(c, 201,nil)
+	return
+
 }
