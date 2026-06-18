@@ -75,7 +75,7 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 				batches.POST("/create", s.AddBatch)
 				//batches.GET("/list", getUser)
 				//batches.GET("/get", getUser)
-				//batches.POST("/update", getUser)
+				batches.POST("/update", s.UpdateBatch)
 			}
 			/*
 			videos := experiment.Group("/videos")

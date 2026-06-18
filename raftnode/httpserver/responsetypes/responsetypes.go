@@ -24,3 +24,7 @@ type TagInfo struct {
 type ListTagsResponse struct {
 	Tags *[]TagInfo `json:"tags"`
 }
+
+type CreateBatchResponse struct {
+	BatchUID string `json:"batchUID"`
+}

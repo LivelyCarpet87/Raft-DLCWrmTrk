@@ -499,6 +499,38 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			f.logger.Error("FileStatusUpdate failed to update entry", "err", err)
 			return err
 		}
+	
+	case "UpdateBatch":
+		var cmd raftcommands.UpdateBatchCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		if _, err := tx.Exec(`
+			UPDATE batches
+			SET 
+				batch_name = ?, 
+				note = ?
+			WHERE batch_uid = ?
+			`, cmd.BatchName, cmd.Note, cmd.BatchUID, 
+			); err != nil {
+			f.logger.Error("UpdateBatch failed to update entry", "err", err)
+			return err
+		}
+		if _, err := tx.Exec(`
+			DELETE FROM conditions
+			WHERE batch_uid = ?
+			`, cmd.BatchUID, 
+			); err != nil {
+			f.logger.Error("UpdateBatch failed to delete existing conditions", "err", err)
+			return err
+		}
+		for _, cond := range cmd.Conditions {
+			if _, err := tx.Exec(`
+				INSERT INTO conditions(batch_uid, tag_name)
+				VALUES(?,?)
+				`, cmd.BatchUID, cond); err != nil {
+				f.logger.Error("UpdateBatch failed to record condition", "err", err, "cond", cond)
+				return err
+			}
+		}
 	default:
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))
 	}

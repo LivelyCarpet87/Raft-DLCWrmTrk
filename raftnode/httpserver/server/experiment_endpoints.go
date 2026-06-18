@@ -128,6 +128,83 @@ func (s *HTTPServer) ListTags(c *gin.Context) {
 	return
 }
 
+func (s *HTTPServer) UpdateBatch(c *gin.Context) {
+	batchUID := c.PostForm("batchUID")
+	conditionsList := c.PostForm("conditions")
+	batchName := c.PostForm("batchName")
+	note := c.PostForm("note")
+
+	if conditionsList == "" {
+		Fail(c, 400, "BAD_INPUT", "conditions cannot be empty")
+      	return
+	}
+	if batchUID == "" {
+		Fail(c, 400, "BAD_INPUT", "batchUID cannot be empty")
+      	return
+	}
+	var conditions []string
+	
+	if err := json.Unmarshal([]byte(conditionsList), &conditions); err != nil {
+		Fail(c, 400, "BAD_INPUT", "could not parse conditions list")
+      	return
+	}
+
+	readOnlyTx, err := s.RaftNode.GetReadOnlyTx(c.Request.Context())
+	defer readOnlyTx.Rollback()
+	if (err != nil) {
+		Fail(c, 503, "FSM_READ_ERR", "failed to get read-only tx")
+		return
+	}
+
+	var count int
+	if err := readOnlyTx.QueryRowContext(	
+		c.Request.Context(), 
+		"SELECT COUNT(batch_name) FROM batches WHERE batch_uid=?", 
+		batchUID).Scan(&count); err != nil {
+		s.Logger.Error("SQLite3 Query Failed", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "failed to check if batch_uid exists")
+		return
+	}
+	if count != 1 {
+		Fail(c, 404, "BATCH_NOT_FOUND", "batchUID not found")
+		return
+	}
+
+	for condTag_i := range conditions {
+		condTag := conditions[condTag_i]
+		if err := readOnlyTx.QueryRowContext(
+			c.Request.Context(), 
+			"SELECT COUNT(tag_name) FROM tags WHERE tag_name=? AND type='condition'", 
+			condTag).Scan(&count); err != nil {
+			s.Logger.Error("SQLite3 Query Failed", "err", err)
+			Fail(c, 503, "FSM_READ_ERR", "failed to count number of matching tags")
+			return
+		}
+		if count != 1 {
+			Fail(c, 400, "BAD_INPUT", "condition tag "+condTag+" provided does not exist")
+			return
+		}
+	}
+	updateBatchCommand := raftcommands.UpdateBatchCommand{
+		BatchUID: batchUID,
+    	BatchName: batchName,
+    	Conditions: conditions,
+    	Note: note,
+	}
+	cmdData, _ := json.Marshal(updateBatchCommand)
+	cmdEnv := raftcommands.CommandEnvelope{
+		Command: "UpdateBatch",
+		Data: cmdData,
+	}
+	if err := s.RaftNode.ProxyApply(cmdEnv); err != nil {
+		Fail(c, 503, "RAFT_ERR", "failed to apply command")
+		return
+	}
+
+	OK(c, 204,nil)
+	return
+}
+
 func (s *HTTPServer) AddBatch(c *gin.Context) {
 	batchUID := uuid.NewString()
 	creationTime := time.Now().UTC().Format(time.RFC3339)
@@ -254,6 +331,6 @@ func (s *HTTPServer) AddBatch(c *gin.Context) {
 		return
 	}
 
-	OK(c, 201,nil)
+	OK(c, 201,rt.CreateBatchResponse{BatchUID:batchUID})
 	return
 }

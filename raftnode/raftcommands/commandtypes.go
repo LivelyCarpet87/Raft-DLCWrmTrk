@@ -48,3 +48,10 @@ type FileStatusUpdateCommand struct {
     Status string `json:"status"`
     HeartbeatTime string `json:"creationTime"`
 }
+
+type UpdateBatchCommand struct {
+    BatchUID string `json:"batchUID"`
+    BatchName string `json:"batchName"`
+    Conditions []string `json:"conditions"`
+    Note string `json:"note"`
+}
