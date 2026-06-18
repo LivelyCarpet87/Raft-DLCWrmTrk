@@ -483,6 +483,8 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 
+		// TODO: Enroll normalizer image worker
+
 	case "FileStatusUpdate":
 		var cmd raftcommands.FileStatusUpdateCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)
