@@ -58,7 +58,13 @@ func (vnm * VNodeManager) AddVNode(sizeLimit int64) (string,error) {
 	return vNodeID, nil
 }
 
-func (vnm *VNodeManager) IngestFile(fileData io.ReadSeeker, ext string, ctx context.Context) (
+func (vnm VNodeManager) Run(ctx context.Context) {
+	for _, vn := range vnm.VNodes {
+		go vn.Run(ctx)
+	}
+}
+
+func (vnm *VNodeManager) IngestFile(fileData io.ReadSeeker, mimeType string, ctx context.Context) (
 	hash string,
 	vNodeID string,
 	fileSize int64,
@@ -96,7 +102,7 @@ func (vnm *VNodeManager) IngestFile(fileData io.ReadSeeker, ext string, ctx cont
 		return "", "",  0, errors.New("could not find a suitable vNode")
 	}
 
-	if hash, fileSize, err = vnm.VNodes[vNodeID].IngestFile(fileData, ext); err != nil {
+	if hash, fileSize, err = vnm.VNodes[vNodeID].IngestFile(fileData, mimeType); err != nil {
 		vnm.Logger.Error("vNode failed to ingest file", "err", err)
         return "", "", 0, err
 	}
@@ -104,8 +110,7 @@ func (vnm *VNodeManager) IngestFile(fileData io.ReadSeeker, ext string, ctx cont
 	return hash, vNodeID, fileSize, nil
 }
 
-func (vnm *VNodeManager) GetFilename(fileMD5 string, mimeType string) string {
-	var ext string
+func GetExt(mimeType string) (ext string){
 	switch mimeType {
 		case "image/png":
 			ext=".png"
@@ -114,7 +119,11 @@ func (vnm *VNodeManager) GetFilename(fileMD5 string, mimeType string) string {
 		default:
 			ext=""
 	}
-	return fileMD5+ext
+	return ext
+}
+
+func (vnm *VNodeManager) GetFilename(fileMD5 string, mimeType string) string {
+	return fileMD5+GetExt(mimeType) 
 }
 
 func (vnm *VNodeManager) Serve(vNodeID string, filename string) (io.Reader, error) {

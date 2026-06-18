@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -208,6 +209,7 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		}
 		log.Info("Created new vNode", "vNodeID", vNodeID)
 	}
+	vnm.Run(context.Background())
 
 	log.Info("Starting HTTP server", "HttpBindAddr",cfg.HttpBindAddr)
 	httpLogger := rootLogger.Named("httpServer")

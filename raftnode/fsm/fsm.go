@@ -102,6 +102,7 @@ func InitSchema(db *sql.DB) error {
 		status TEXT NOT NULL, -- pending|done|failed|timeout
 		last_heartbeat_time TEXT NOT NULL,
 		file_size INTEGER NOT NULL,
+    	PRIMARY KEY(file_md5, vnode_id),
 		CHECK(type IN ('original','replica','temporary')),
 		CHECK(status IN ('pending','done','failed','timeout'))
 	);
@@ -227,7 +228,7 @@ func VNodeConstraintRelaxFailureDomain(chosen []vNodeChoice, newChoice vNodeChoi
 func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize int64, 
 	creationTime string, tx *sql.Tx, logger hclog.Logger) error {
 	if _, err := tx.Exec(`
-		INSERT INTO files(file_md5, mime_type, vnode_id, type, status, 
+		INSERT OR IGNORE INTO files(file_md5, mime_type, vnode_id, type, status, 
 		last_heartbeat_time,file_size)
 		VALUES(?,?,?,'original','done',?,?)
 		`, fileMD5, mimeType, seedVNodeID, creationTime, filesize); err != nil {
@@ -341,7 +342,7 @@ func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize in
 	// Skip first element because seed is already done
 	for _ , c := range selectedVNodes[1:] { 
 		if _, err := tx.Exec(`
-			INSERT INTO files(file_md5, mime_type, vnode_id, type, status, 
+			INSERT OR IGNORE INTO files(file_md5, mime_type, vnode_id, type, status, 
 			last_heartbeat_time,file_size)
 			VALUES(?,?,?,'replica','pending',?,?)
 			`, fileMD5, mimeType, c.vNodeID, creationTime, filesize); err != nil {
@@ -482,6 +483,20 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 
+	case "FileStatusUpdate":
+		var cmd raftcommands.FileStatusUpdateCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		if _, err := tx.Exec(`
+			UPDATE files
+			SET 
+				status = ?, 
+				last_heartbeat_time = ?
+			WHERE file_md5 = ? AND vnode_id = ?
+			`, cmd.Status, cmd.HeartbeatTime, 
+			cmd.FileMD5, cmd.VNodeID); err != nil {
+			f.logger.Error("FileStatusUpdate failed to update entry", "err", err)
+			return err
+		}
 	default:
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))
 	}

@@ -214,7 +214,8 @@ func (s *HTTPServer) AddBatch(c *gin.Context) {
         return
     }
 	
-	if mtype.String() != "image/png" {
+	mimeType := mtype.String()
+	if mimeType != "image/png" {
 		Fail(c, 400, "BAD_INPUT", "expected PNG file for normalizer image")
         return
 	}
@@ -226,7 +227,7 @@ func (s *HTTPServer) AddBatch(c *gin.Context) {
         return 
     }
 
-	normMD5, vNodeID, fileSize, err := s.VNodeManager.IngestFile(fileData, ".png", c.Request.Context())
+	normMD5, vNodeID, fileSize, err := s.VNodeManager.IngestFile(fileData, mimeType, c.Request.Context())
 	if err != nil {
 		Fail(c, 507, "FILE_ERROR", "failed to save uploaded file")
 		return

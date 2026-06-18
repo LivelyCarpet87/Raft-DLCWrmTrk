@@ -41,3 +41,10 @@ type AddBatchCommand struct {
     Conditions []string `json:"conditions"`
     Note string `json:"note"`
 }
+
+type FileStatusUpdateCommand struct {
+    FileMD5 string `json:"FileMD5"`
+    VNodeID string `json:"vNodeID"`
+    Status string `json:"status"`
+    HeartbeatTime string `json:"creationTime"`
+}
