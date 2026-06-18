@@ -535,7 +535,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		var cmd raftcommands.AddSrcVideoCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)
 		if _, err := tx.Exec(`
-			INSERT INTO src_videos(src_video_md5, batch_uid, 
+			INSERT OR IGNORE INTO src_videos(src_video_md5, batch_uid, 
 			video_name, upload_time)
 			VALUES(?,?,?,?)
 			`, cmd.VideoMD5, cmd.BatchUID, 
