@@ -157,12 +157,11 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		defer rotx.Rollback()
 		var fileStatus string
 		if err := rotx.QueryRow(`
-		SELECT file_md5,  FROM files
+		SELECT file_status  FROM files
 		WHERE vnode_id = ? AND file_md5 = ?
 		LIMIT 1
 		`, vn.vNodeID, expectedHash).Scan(&fileStatus); err!=nil {
 			rotx.Rollback()
-			_ = os.Remove(ingestPath)
 			continue
 		}
 		rotx.Rollback()
@@ -170,6 +169,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		if err := os.Rename(ingestPath, dataPath); err != nil {
 			if !os.IsExist(err) {
 				vn.Logger.Error("failed to move ingest file","ingestPath", ingestPath, "dataPath", dataPath)
+				continue
 			}
 			_ = os.Remove(ingestPath)
 			continue
