@@ -162,6 +162,15 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		LIMIT 1
 		`, vn.vNodeID, expectedHash).Scan(&fileStatus); err!=nil {
 			rotx.Rollback()
+			info, err := os.Stat(ingestPath)
+			if err != nil {
+				continue
+			}
+
+			// Ingest files are probably stale or unused after an hour
+			if time.Since(info.ModTime()) > time.Hour {
+				_ = os.Remove(ingestPath)
+			}
 			continue
 		}
 		rotx.Rollback()
