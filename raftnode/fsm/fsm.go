@@ -549,6 +549,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 	default:
+		f.logger.Error("unknown raft command", "cmd",cmdEnv.Command)
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))
 	}
 
