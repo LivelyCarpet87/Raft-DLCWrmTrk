@@ -212,6 +212,23 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 	vnm.Run(context.Background())
 
 	log.Info("Starting HTTP server", "HttpBindAddr",cfg.HttpBindAddr)
+	videoWorkerLogger := rootLogger.Named("videoWorker")
+	workerUID := uuid.NewString()
+	vwCfg := workersupervisor.VideoSupervisorConfig{
+		SupervisorCfg: workersupervisor.SupervisorConfig{
+			WorkerUID: workerUID,
+			WorkDir:   filepath.Join(workerDir, workerUID),
+		},
+		PollMS:           500,
+		DlcCfgPath:       "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/testing/DLC-WrmTrk-Tyllis Xu-2025-10-25/config.yaml",
+		DlcShuffle:       5,
+		PythonBinPath:    "/home/livelycarpet87/miniforge3/envs/DEEPLABCUT/bin/python3",
+		PythonWorkerPath: "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/videoworker/video_worker.py",
+		StepTime:         0.1,
+	}
+	vws, _ := workersupervisor.NewVideoSupervisor(vwCfg, node, videoWorkerLogger)
+	vws.Run(ctx)
+
 	httpLogger := rootLogger.Named("httpServer")
 	s := server.New(node, httpLogger, vnm)
 	s.Run(cfg.HttpBindAddr)

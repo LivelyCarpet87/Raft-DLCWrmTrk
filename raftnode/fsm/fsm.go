@@ -568,6 +568,28 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 
+	case "EnrollWorker":
+		var cmd raftcommands.EnrollWorkerCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		if _, err := tx.Exec(`
+			INSERT INTO workers(worker_uid, node_id, worker_type, 
+			last_heartbeat_time, status)
+			VALUES(?,?,?,?,"free")
+			ON CONFLICT(worker_uid)
+			DO UPDATE SET
+				node_id = excluded.node_id,
+				worker_type = excluded.worker_type,
+				last_heartbeat_time = excluded.last_heartbeat_time,
+				status = excluded.status
+			WHERE workers.status = "down"
+			`, cmd.WorkerUID, cmd.NodeID, cmd.WorkerType,
+			cmd.EnrollTime); err != nil {
+			f.logger.Error("Failed to enroll worker",
+				"worker_uid", cmd.WorkerUID,
+				"worker_type", cmd.WorkerType,
+				"err", err)
+			return err
+		}
 	default:
 		f.logger.Error("unknown raft command", "cmd",cmdEnv.Command)
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))

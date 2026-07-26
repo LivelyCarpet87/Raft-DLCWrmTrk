@@ -64,3 +64,9 @@ type AddSrcVideoCommand struct {
     VNodeID string `json:"vNodeID"`
     VideoFileSize int64 `json:"videoFileSize"`
 }
+type EnrollWorkerCommand struct {
+	WorkerUID  string `json:"workerUID"`
+	NodeID     string `json:"nodeID"`
+	WorkerType string `json:"workerType"`
+	EnrollTime string `json:"enrollTime"`
+}
