@@ -6,41 +6,41 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"net/http"
 	"io"
-    "os"
-    "path/filepath"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
 
-	"raft-dlcwrmtrk/raftnode"
 	rc "raft-dlcwrmtrk/raftcommands"
+	"raft-dlcwrmtrk/raftnode"
 )
 
 type VNode struct {
-	vNodeID string
+	vNodeID   string
 	vNodePath string
-	RaftNode *raftnode.Node
-	Logger hclog.Logger
+	RaftNode  *raftnode.Node
+	Logger    hclog.Logger
 }
 
 func NewVNode(vNodeID string, vNodePath string, raftNode *raftnode.Node, logger hclog.Logger) (*VNode, error) {
-	if err := os.MkdirAll(filepath.Join(vNodePath,"ingest"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(vNodePath, "ingest"), 0755); err != nil {
 		logger.Error("Failed to create directory to store ingest files", "vNodeID", vNodeID, "err", err)
 		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(vNodePath,"data"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(vNodePath, "data"), 0755); err != nil {
 		logger.Error("Failed to create directory to store files", "vNodeID", vNodeID, "err", err)
 		return nil, err
 	}
-	
+
 	vn := &VNode{
-		vNodeID: vNodeID,
+		vNodeID:   vNodeID,
 		vNodePath: vNodePath,
-		RaftNode: raftNode,
-		Logger: logger,
+		RaftNode:  raftNode,
+		Logger:    logger,
 	}
 
 	return vn, nil
@@ -54,22 +54,22 @@ func (vn *VNode) IngestFile(fileData io.ReadSeeker, mimeType string) (
 	h := md5.New()
 
 	tempFile, err := os.CreateTemp("", "upload-*")
-    if err != nil {
+	if err != nil {
 		vn.Logger.Error("failed to create tmp file", "err", err)
-        return "", 0, err
-    }
+		return "", 0, err
+	}
 	defer tempFile.Close()
 
-    tempFileName := tempFile.Name()
-    defer os.Remove(tempFileName)
+	tempFileName := tempFile.Name()
+	defer os.Remove(tempFileName)
 
 	mw := io.MultiWriter(tempFile, h)
 
 	fileSize, err = io.Copy(mw, fileData)
-    if err != nil {
+	if err != nil {
 		vn.Logger.Error("failed to copy file stream", "err", err)
-        return "", 0, err
-    }
+		return "", 0, err
+	}
 	hash = hex.EncodeToString(h.Sum(nil))
 
 	filename := hash + GetExt(mimeType)
@@ -91,7 +91,7 @@ func (vn *VNode) Serve(filename string) (io.Reader, error) {
 	} else if os.IsNotExist(err) {
 		ingestPath := filepath.Join(vn.vNodePath, "ingest", filename)
 		_, err := os.Stat(ingestPath)
-		if os.IsNotExist(err){
+		if os.IsNotExist(err) {
 			vn.Logger.Error("file does not exist", "filename", filename)
 			return nil, err
 		} else if err != nil {
@@ -100,7 +100,7 @@ func (vn *VNode) Serve(filename string) (io.Reader, error) {
 		}
 		if err := os.Rename(ingestPath, dataPath); err != nil {
 			if !os.IsExist(err) {
-				vn.Logger.Error("failed to lazy-move ingest file","ingestPath", ingestPath, "dataPath", dataPath)
+				vn.Logger.Error("failed to lazy-move ingest file", "ingestPath", ingestPath, "dataPath", dataPath)
 				return nil, err
 			}
 		}
@@ -121,7 +121,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 
 	for _, entry := range ingestEntries {
 		if entry.IsDir() {
-			// This should not happen, but included for safety 
+			// This should not happen, but included for safety
 			// especially if user opens this folder
 			continue
 		}
@@ -151,7 +151,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 			_ = os.Remove(ingestPath)
 		}
 		rotx, err := vn.RaftNode.GetReadOnlyTx(ctx)
-		if err != nil{
+		if err != nil {
 			continue
 		}
 		defer rotx.Rollback()
@@ -160,7 +160,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		SELECT file_status  FROM files
 		WHERE vnode_id = ? AND file_md5 = ?
 		LIMIT 1
-		`, vn.vNodeID, expectedHash).Scan(&fileStatus); err!=nil {
+		`, vn.vNodeID, expectedHash).Scan(&fileStatus); err != nil {
 			rotx.Rollback()
 			info, err := os.Stat(ingestPath)
 			if err != nil {
@@ -177,28 +177,28 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 
 		if err := os.Rename(ingestPath, dataPath); err != nil {
 			if !os.IsExist(err) {
-				vn.Logger.Error("failed to move ingest file","ingestPath", ingestPath, "dataPath", dataPath)
+				vn.Logger.Error("failed to move ingest file", "ingestPath", ingestPath, "dataPath", dataPath)
 				continue
 			}
 			_ = os.Remove(ingestPath)
 			continue
 		}
 		statusUpdateCommand := rc.UpdateFileStatusCommand{
-			FileMD5: expectedHash,
-			VNodeID: vn.vNodeID,
-			Status: "done",
-			HeartbeatTime: time.Now().UTC().Format(time.RFC3339),
+			FileMD5:       expectedHash,
+			VNodeID:       vn.vNodeID,
+			Status:        "done",
+			HeartbeatTime: time.Now().UTC().Format(time.RFC3339Nano),
 		}
 		cmdData, _ := json.Marshal(statusUpdateCommand)
 		cmdEnv := rc.CommandEnvelope{
 			Command: "UpdateFileStatus",
-			Data: cmdData,
+			Data:    cmdData,
 		}
 		if err := vn.RaftNode.ProxyApply(cmdEnv); err != nil {
 			vn.Logger.Error("failed to apply command to update file status", "err", err)
 		}
 	}
-	
+
 	// Ingest folder has been (almost) cleared
 	rotx, _ := vn.RaftNode.GetReadOnlyTx(ctx)
 	defer rotx.Rollback()
@@ -213,7 +213,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		return
 	}
 	type PendingFile struct {
-		fileMD5 string
+		fileMD5  string
 		mimeType string
 	}
 	var pendingFiles []PendingFile
@@ -233,10 +233,10 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		fileMD5 := f.fileMD5
 		mimeType := f.mimeType
 		var targetHttpAddr string
-		
+
 		rotx, _ := vn.RaftNode.GetReadOnlyTx(ctx)
 		defer rotx.Rollback()
-		if err:=rotx.QueryRow(
+		if err := rotx.QueryRow(
 			`SELECT n.http_addr 
 			FROM nodes n
 			LEFT JOIN vnodes v
@@ -253,7 +253,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		}
 		rotx.Rollback()
 
-		getFileUrl := "http://"+targetHttpAddr + "/api/filer/" + fileMD5
+		getFileUrl := "http://" + targetHttpAddr + "/api/filer/" + fileMD5
 
 		resp, err := http.Get(getFileUrl)
 		if err != nil {
@@ -271,15 +271,15 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		if err != nil {
 			vn.Logger.Error("failed to read file from http req", "getFileUrl", getFileUrl, "err", err)
 			statusUpdateCommand := rc.UpdateFileStatusCommand{
-				FileMD5: fileMD5,
-				VNodeID: vn.vNodeID,
-				Status: "failed",
-				HeartbeatTime: time.Now().UTC().Format(time.RFC3339),
+				FileMD5:       fileMD5,
+				VNodeID:       vn.vNodeID,
+				Status:        "failed",
+				HeartbeatTime: time.Now().UTC().Format(time.RFC3339Nano),
 			}
 			cmdData, _ := json.Marshal(statusUpdateCommand)
 			cmdEnv := rc.CommandEnvelope{
 				Command: "UpdateFileStatus",
-				Data: cmdData,
+				Data:    cmdData,
 			}
 			if err := vn.RaftNode.ProxyApply(cmdEnv); err != nil {
 				vn.Logger.Error("failed to apply command to update file status", "err", err)
@@ -293,15 +293,15 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		if err != nil || fileMD5 != hash {
 			vn.Logger.Error("failed to ingest file from http req", "getFileUrl", getFileUrl, "err", err)
 			statusUpdateCommand := rc.UpdateFileStatusCommand{
-				FileMD5: fileMD5,
-				VNodeID: vn.vNodeID,
-				Status: "failed",
-				HeartbeatTime: time.Now().UTC().Format(time.RFC3339),
+				FileMD5:       fileMD5,
+				VNodeID:       vn.vNodeID,
+				Status:        "failed",
+				HeartbeatTime: time.Now().UTC().Format(time.RFC3339Nano),
 			}
 			cmdData, _ := json.Marshal(statusUpdateCommand)
 			cmdEnv := rc.CommandEnvelope{
 				Command: "UpdateFileStatus",
-				Data: cmdData,
+				Data:    cmdData,
 			}
 			if err := vn.RaftNode.ProxyApply(cmdEnv); err != nil {
 				vn.Logger.Error("failed to apply command to update file status", "err", err)
@@ -309,15 +309,15 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 			continue
 		}
 		statusUpdateCommand := rc.UpdateFileStatusCommand{
-			FileMD5: fileMD5,
-			VNodeID: vn.vNodeID,
-			Status: "done",
-			HeartbeatTime: time.Now().UTC().Format(time.RFC3339),
+			FileMD5:       fileMD5,
+			VNodeID:       vn.vNodeID,
+			Status:        "done",
+			HeartbeatTime: time.Now().UTC().Format(time.RFC3339Nano),
 		}
 		cmdData, _ := json.Marshal(statusUpdateCommand)
 		cmdEnv := rc.CommandEnvelope{
 			Command: "UpdateFileStatus",
-			Data: cmdData,
+			Data:    cmdData,
 		}
 		if err := vn.RaftNode.ProxyApply(cmdEnv); err != nil {
 			vn.Logger.Error("failed to apply command to update file status", "err", err)
@@ -328,7 +328,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		dataPath := filepath.Join(dataDir, name)
 		if err := os.Rename(ingestPath, dataPath); err != nil {
 			if !os.IsExist(err) {
-				vn.Logger.Error("failed to move ingest file","ingestPath", ingestPath, "dataPath", dataPath)
+				vn.Logger.Error("failed to move ingest file", "ingestPath", ingestPath, "dataPath", dataPath)
 			}
 			continue
 		}
@@ -337,21 +337,20 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 
 func (vn *VNode) Run(ctx context.Context) {
 	fileAcq := time.NewTicker(1000 * time.Millisecond)
-    gc := time.NewTicker(600 * time.Second)
-    defer fileAcq.Stop()
-    defer gc.Stop()
+	gc := time.NewTicker(600 * time.Second)
+	defer fileAcq.Stop()
+	defer gc.Stop()
 
-    for {
-        select {
-        case <-fileAcq.C: // Check for pending files
-            vn.CollectPendingFiles(ctx)
-			
+	for {
+		select {
+		case <-fileAcq.C: // Check for pending files
+			vn.CollectPendingFiles(ctx)
 
-        case <-gc.C:
-            _, _ = vn.RaftNode.GetReadOnlyTx(ctx)
+		case <-gc.C:
+			_, _ = vn.RaftNode.GetReadOnlyTx(ctx)
 
-        case <-ctx.Done():
-            return
-        }
-    }
+		case <-ctx.Done():
+			return
+		}
+	}
 }

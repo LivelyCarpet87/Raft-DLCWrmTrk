@@ -1,15 +1,16 @@
 package fsm
 
 import (
+	"context"
 	"database/sql"
-	_ "modernc.org/sqlite"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"sync"
-	"context"
+
+	_ "modernc.org/sqlite"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
@@ -18,9 +19,9 @@ import (
 )
 
 type FSM struct {
-	mu sync.Mutex
-	db *sql.DB
-	path string
+	mu     sync.Mutex
+	db     *sql.DB
+	path   string
 	logger hclog.Logger
 }
 
@@ -107,43 +108,26 @@ func InitSchema(db *sql.DB) error {
 		CHECK(status IN ('pending','done','failed','timeout'))
 	);
 
-	CREATE TABLE IF NOT EXISTS video_workers (
+	CREATE TABLE IF NOT EXISTS workers (
 		worker_uid TEXT PRIMARY KEY,
 		node_id TEXT NOT NULL,
+		worker_type TEXT NOT NULL,
 		last_heartbeat_time TEXT NOT NULL,
 		status TEXT NOT NULL, -- free|assigned|down
 		CHECK(status IN ('free','assigned','down'))
 	);
 
-	CREATE TABLE IF NOT EXISTS norm_workers (
-		worker_uid TEXT PRIMARY KEY,
-		node_id TEXT NOT NULL,
-		last_heartbeat_time TEXT NOT NULL,
-		status TEXT NOT NULL, -- free|assigned|down
-		CHECK(status IN ('free','assigned','down'))
-	);
-
-	CREATE TABLE IF NOT EXISTS video_jobs (
-		enrollment_time TEXT NOT NULL,
-		file_md5 TEXT NOT NULL,
+	CREATE TABLE IF NOT EXISTS jobs (
+		job_id TEXT NOT NULL,
 		attempt_counter INTEGER NOT NULL, -- Index starts at 1
+		job_type TEXT NOT NULL,
+		enrollment_time TEXT NOT NULL,
 		status TEXT NOT NULL, -- pending|assigned|done|failed|crashed|timeout
 		assignment_time TEXT,
 		worker_uid TEXT,
 		end_time TEXT,
-		PRIMARY KEY(file_md5, attempt_counter),
-		CHECK(status IN ('pending','assigned','done','failed','crashed','timeout'))
-	);
-
-	CREATE TABLE IF NOT EXISTS norm_jobs (
-		enrollment_time TEXT NOT NULL,
-		file_md5 TEXT NOT NULL,
-		attempt_counter INTEGER NOT NULL, -- Index starts at 1
-		status TEXT NOT NULL, -- pending|assigned|done|failed|crashed|timeout
-		assignment_time TEXT,
-		worker_uid TEXT,
-		end_time TEXT,
-		PRIMARY KEY(file_md5, attempt_counter),
+		job_context BLOB,
+		PRIMARY KEY(job_id, attempt_counter),
 		CHECK(status IN ('pending','assigned','done','failed','crashed','timeout'))
 	);
 
@@ -187,9 +171,9 @@ func (f *FSM) GetReadOnlyTx(ctx context.Context) (*sql.Tx, error) {
 }
 
 type vNodeChoice struct {
-	vNodeID string
+	vNodeID       string
 	failureDomain string
-	status string
+	status        string
 }
 
 func VNodeConstraintStrict(chosen []vNodeChoice, newChoice vNodeChoice) bool {
@@ -227,7 +211,7 @@ func VNodeConstraintRelaxFailureDomain(chosen []vNodeChoice, newChoice vNodeChoi
 	return true
 }
 
-func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize int64, 
+func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize int64,
 	creationTime string, tx *sql.Tx, logger hclog.Logger) error {
 	if _, err := tx.Exec(`
 		INSERT OR IGNORE INTO files(file_md5, mime_type, vnode_id, type, status, 
@@ -244,30 +228,30 @@ func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize in
 	JOIN nodes n
 		ON n.node_id = v.node_id
 	WHERE v.vnode_id = ?
-	`, seedVNodeID).Scan(&seedFailureDomain, & seedStatus); err != nil {
+	`, seedVNodeID).Scan(&seedFailureDomain, &seedStatus); err != nil {
 		logger.Error("failed to find failure domain of vNode", "err", err)
 		return err
 	}
 
 	var fileReplicaCount int
 	if err := tx.QueryRow(
-			"SELECT param_value FROM params WHERE param_name='fileReplicaCount'",
-		).Scan(&fileReplicaCount); err != nil {
+		"SELECT param_value FROM params WHERE param_name='fileReplicaCount'",
+	).Scan(&fileReplicaCount); err != nil {
 		logger.Error("failed to read param fileReplicaCount", "err", err)
 		return err
 	}
 
 	var existingCopies int
 	if err := tx.QueryRow(
-			"SELECT COUNT(file_md5) FROM files WHERE file_md5=? AND status IN ('done', 'pending')",
+		"SELECT COUNT(file_md5) FROM files WHERE file_md5=? AND status IN ('done', 'pending')",
 		fileMD5).Scan(&existingCopies); err != nil {
-		logger.Error("failed to count existing copies of file", 
-		"err", err, "fileMD5", fileMD5)
+		logger.Error("failed to count existing copies of file",
+			"err", err, "fileMD5", fileMD5)
 		return err
 	}
-	if (existingCopies >= fileReplicaCount + 1) {
-		logger.Info("sufficient existing copies of file, not replicating", 
-		"fileMD5", fileMD5, "existingCopies", existingCopies)
+	if existingCopies >= fileReplicaCount+1 {
+		logger.Info("sufficient existing copies of file, not replicating",
+			"fileMD5", fileMD5, "existingCopies", existingCopies)
 		return nil
 	}
 
@@ -290,11 +274,11 @@ func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize in
 	var selectedVNodes []vNodeChoice
 
 	selectedVNodes = append(selectedVNodes, vNodeChoice{
-		vNodeID: seedVNodeID,
+		vNodeID:       seedVNodeID,
 		failureDomain: seedFailureDomain,
-		status: seedStatus,
+		status:        seedStatus,
 	})
-	constraints := []func([]vNodeChoice, vNodeChoice) bool {
+	constraints := []func([]vNodeChoice, vNodeChoice) bool{
 		VNodeConstraintStrict,
 		VNodeConstraintAllowCrowded,
 		VNodeConstraintRelaxFailureDomain,
@@ -318,12 +302,12 @@ func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize in
 
 			var choice vNodeChoice
 			if err := rows.Scan(
-				&choice.vNodeID, 
-				&choice.failureDomain, 
+				&choice.vNodeID,
+				&choice.failureDomain,
 				&choice.status,
-				); err != nil {
-				logger.Error("ring walk SQLite3 query row read failed", 
-				"err", err)
+			); err != nil {
+				logger.Error("ring walk SQLite3 query row read failed",
+					"err", err)
 				return err
 			}
 			if constraint(selectedVNodes, choice) {
@@ -336,13 +320,13 @@ func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize in
 		rows.Close()
 	}
 	if len(selectedVNodes) != fileReplicaCount+1 {
-		logger.Error("failed to select sufficient sites on ring", 
-		"fileReplicaCount", fileReplicaCount)
+		logger.Error("failed to select sufficient sites on ring",
+			"fileReplicaCount", fileReplicaCount)
 		return errors.New("failed to select sufficient sites on ring")
 	}
 
 	// Skip first element because seed is already done
-	for _ , c := range selectedVNodes[1:] { 
+	for _, c := range selectedVNodes[1:] {
 		if _, err := tx.Exec(`
 			INSERT OR IGNORE INTO files(file_md5, mime_type, vnode_id, type, status, 
 			last_heartbeat_time,file_size)
@@ -351,7 +335,7 @@ func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize in
 			logger.Error("failed to record seed file upload", "err", err)
 			return err
 		}
-		var  maxStorage int64
+		var maxStorage int64
 		var usedStorage int64
 		if err := tx.QueryRow(`
 			SELECT
@@ -375,7 +359,7 @@ func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize in
 				logger.Error("failed to record new vNode state as full", "err", err)
 				return err
 			}
-		} else if usedStorage >= maxStorage /10 * 9 {
+		} else if usedStorage >= maxStorage/10*9 {
 			if _, err := tx.Exec(`
 				UPDATE vnodes
 				SET status = 'crowded'
@@ -385,7 +369,7 @@ func SpreadFile(seedVNodeID string, fileMD5 string, mimeType string, filesize in
 				return err
 			}
 		}
-		
+
 	}
 
 	return nil
@@ -422,7 +406,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 	// ---- NODE MGMT ----
 	case "AddNode":
 		var cmd raftcommands.AddNodeCommand
-    	json.Unmarshal(cmdEnv.Data, &cmd)
+		json.Unmarshal(cmdEnv.Data, &cmd)
 		_, err := tx.Exec(`
 			INSERT OR REPLACE INTO nodes(node_id,raft_addr,http_addr,failure_domain,status)
 			VALUES(?,?,?,?,'up')
@@ -443,7 +427,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			f.logger.Error("TryAddTag failed", "err", err)
 			return err
 		}
-	
+
 	case "AddVNode":
 		var cmd raftcommands.AddVNodeCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)
@@ -463,8 +447,8 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			INSERT INTO batches(batch_uid, batch_name, creation_time, 
 			primary_tag, secondary_tag, norm_md5, note)
 			VALUES(?,?,?,?,?,?,?)
-			`, cmd.BatchUID, cmd.BatchName, cmd.CreationTime, 
-			cmd.PrimaryTag, cmd.SecondaryTag, 
+			`, cmd.BatchUID, cmd.BatchName, cmd.CreationTime,
+			cmd.PrimaryTag, cmd.SecondaryTag,
 			cmd.NormMD5, cmd.Note); err != nil {
 			f.logger.Error("AddBatch failed to create batch", "err", err)
 			return err
@@ -478,8 +462,8 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 				return err
 			}
 		}
-		
-		if err := SpreadFile(cmd.VNodeID, cmd.NormMD5, "image/png", cmd.NormFileSize, 
+
+		if err := SpreadFile(cmd.VNodeID, cmd.NormMD5, "image/png", cmd.NormFileSize,
 			cmd.CreationTime, tx, f.logger); err != nil {
 			f.logger.Error("AddBatch failed replicate files", "err", err)
 			return err
@@ -504,12 +488,12 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 				status = ?, 
 				last_heartbeat_time = ?
 			WHERE file_md5 = ? AND vnode_id = ?
-			`, cmd.Status, cmd.HeartbeatTime, 
+			`, cmd.Status, cmd.HeartbeatTime,
 			cmd.FileMD5, cmd.VNodeID); err != nil {
 			f.logger.Error("FileStatusUpdate failed to update entry", "err", err)
 			return err
 		}
-	
+
 	case "UpdateBatch":
 		var cmd raftcommands.UpdateBatchCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)
@@ -519,16 +503,16 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 				batch_name = ?, 
 				note = ?
 			WHERE batch_uid = ?
-			`, cmd.BatchName, cmd.Note, cmd.BatchUID, 
-			); err != nil {
+			`, cmd.BatchName, cmd.Note, cmd.BatchUID,
+		); err != nil {
 			f.logger.Error("UpdateBatch failed to update entry", "err", err)
 			return err
 		}
 		if _, err := tx.Exec(`
 			DELETE FROM conditions
 			WHERE batch_uid = ?
-			`, cmd.BatchUID, 
-			); err != nil {
+			`, cmd.BatchUID,
+		); err != nil {
 			f.logger.Error("UpdateBatch failed to delete existing conditions", "err", err)
 			return err
 		}
@@ -548,12 +532,12 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			INSERT OR IGNORE INTO src_videos(src_video_md5, batch_uid, 
 			video_name, upload_time)
 			VALUES(?,?,?,?)
-			`, cmd.VideoMD5, cmd.BatchUID, 
+			`, cmd.VideoMD5, cmd.BatchUID,
 			cmd.VideoName, cmd.UploadTime); err != nil {
 			f.logger.Error("AddSrcVideo failed to create video entry", "err", err)
 			return err
 		}
-		if err := SpreadFile(cmd.VNodeID, cmd.VideoMD5, "video/mp4", cmd.VideoFileSize, 
+		if err := SpreadFile(cmd.VNodeID, cmd.VideoMD5, "video/mp4", cmd.VideoFileSize,
 			cmd.UploadTime, tx, f.logger); err != nil {
 			f.logger.Error("AddSrcVideo failed replicate files", "err", err)
 			return err
@@ -591,11 +575,10 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 	default:
-		f.logger.Error("unknown raft command", "cmd",cmdEnv.Command)
+		f.logger.Error("unknown raft command", "cmd", cmdEnv.Command)
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))
 	}
 
-	
 	if err := tx.Commit(); err != nil {
 		f.logger.Error("commit failed", "err", err)
 		return err
@@ -673,7 +656,6 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 
 	return nil
 }
-
 
 func (f *FSM) QueryHttpAddrFromRaftAddr(raftAddr string) (string, error) {
 	var httpAddr string

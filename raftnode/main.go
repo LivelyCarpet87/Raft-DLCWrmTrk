@@ -4,22 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"os"
-	"os/signal"
-	"syscall"
-	"strings"
-	"time"
 	"flag"
+	"io"
 	"net/http"
 	"net/url"
-    "path/filepath"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
 
-	"raft-dlcwrmtrk/raftnode"
-	"raft-dlcwrmtrk/httpserver/server"
 	rt "raft-dlcwrmtrk/httpserver/responsetypes"
+	"raft-dlcwrmtrk/httpserver/server"
+	"raft-dlcwrmtrk/raftnode"
 	"raft-dlcwrmtrk/vnode"
+	"raft-dlcwrmtrk/workersupervisor"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
 
 	_ "modernc.org/sqlite"
@@ -35,10 +37,10 @@ func discoverLeader(seeds []string) (string, error) {
 
 		var response rt.Response[rt.LeaderHttpAddrResponse]
 		body, _ := io.ReadAll(resp.Body)
-		if (json.Unmarshal(body, &response) != nil) {
+		if json.Unmarshal(body, &response) != nil {
 			panic(err)
 		}
-		if (response.Success){
+		if response.Success {
 			return response.Data.Leader, nil
 		}
 	}
@@ -52,19 +54,18 @@ func main() {
 	})
 	log := rootLogger.Named("main")
 
-	cfgPath := 			flag.String("config", "", "The path of the config file.")
-	genConfig := 		flag.Bool("generate-cfg", false, "Generate a default configuration file from template.")
-	bootstrap :=		flag.Bool("bootstrap", false, "Bootstrap when starting the cluster for the first time. ONLY 1 node can be bootstrapped.")
-	peersList :=		flag.String("peers", "", "A comma separated list of peers in the cluster. Ex. addr1:http_port1,addr2:http_port2")
+	cfgPath := flag.String("config", "", "The path of the config file.")
+	genConfig := flag.Bool("generate-cfg", false, "Generate a default configuration file from template.")
+	bootstrap := flag.Bool("bootstrap", false, "Bootstrap when starting the cluster for the first time. ONLY 1 node can be bootstrapped.")
+	peersList := flag.String("peers", "", "A comma separated list of peers in the cluster. Ex. addr1:http_port1,addr2:http_port2")
 
 	flag.Parse()
 
-
-	if (*cfgPath == ""){
+	if *cfgPath == "" {
 		flag.Usage()
 		panic("config file is required.")
 	}
-	
+
 	if *genConfig {
 		cfgDir := filepath.Dir(*cfgPath)
 		info, err := os.Stat(cfgDir)
@@ -109,7 +110,7 @@ func main() {
 		return
 	}
 
-	log.Info("Using configuration file", "cfg",cfg)
+	log.Info("Using configuration file", "cfg", cfg)
 
 	if *bootstrap || *peersList != "" {
 		StartRaft(*bootstrap, *peersList, cfg, rootLogger, log)
@@ -128,14 +129,15 @@ func CheckConfig(cfg *Config) error {
 	return nil
 }
 
-func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.Logger, log hclog.Logger) {	
+func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.Logger, log hclog.Logger) {
 	leader := ""
 	peers := strings.Split(peersList, ",")
 
 	fsmDir := filepath.Join(cfg.BasePath, "fsm")
 	snapshotDir := filepath.Join(cfg.BasePath, "raft", "data")
 	vNodeDir := filepath.Join(cfg.BasePath, "vnodes")
-
+	workerDir := filepath.Join(cfg.BasePath, "workers")
+	_ = os.RemoveAll(workerDir)
 
 	if err := os.Mkdir(fsmDir, 0755); err != nil && !os.IsExist(err) {
 		log.Error("Failed to create directory to store FSM", "err", err)
@@ -149,33 +151,37 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		log.Error("Failed to create directory to store vNode data", "err", err)
 		return
 	}
+	if err := os.MkdirAll(workerDir, 0755); err != nil {
+		log.Error("Failed to create directory to store worker data", "err", err)
+		return
+	}
 
-	if (!bootstrap) {
+	if !bootstrap {
 		leader_found, err := discoverLeader(peers)
 		if err != nil {
-			log.Error("Failed to find leader", "err",err)
+			log.Error("Failed to find leader", "err", err)
 			return
 		}
 		leader = leader_found
-		log.Info("Found leader", "leader",leader)
+		log.Info("Found leader", "leader", leader)
 	}
 
 	log.Info("Starting RAFT", "RaftBindAddr", cfg.RaftBindAddr)
 	node, err := raftnode.NewNode(
 		cfg.BasePath,
-		cfg.NodeID, 
-		cfg.RaftBindAddr, 
-		cfg.FailureDomain, 
+		cfg.NodeID,
+		cfg.RaftBindAddr,
+		cfg.FailureDomain,
 		cfg.HttpBindAddr,
 		rootLogger, bootstrap)
 	if err != nil {
-		log.Error("Failed to create RAFT node", "err",err)
+		log.Error("Failed to create RAFT node", "err", err)
 		return
 	}
 
 	if !bootstrap {
 		time.Sleep(500 * time.Millisecond) // small safety delay
-	
+
 		form := url.Values{}
 		form.Add("nodeID", cfg.NodeID)
 		form.Add("raftAddr", cfg.RaftBindAddr)
@@ -197,13 +203,15 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		}
 	}
 
+	ctx := context.Background()
+
 	time.Sleep(500 * time.Millisecond) // small safety delay
 	log.Info("Starting vNode manager")
 	vNodeLogger := rootLogger.Named("vNode")
 	vnm := vnode.NewVNodeManager(vNodeDir, node, vNodeLogger)
 
 	for _ = range cfg.Storage.NumVNodes {
-		vNodeID, err := vnm.AddVNode(cfg.Storage.MaxStorage) 
+		vNodeID, err := vnm.AddVNode(cfg.Storage.MaxStorage)
 		if err != nil {
 			log.Error("Error creating new vNode", "vNodeID", vNodeID, "err", err)
 		}
@@ -211,7 +219,6 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 	}
 	vnm.Run(context.Background())
 
-	log.Info("Starting HTTP server", "HttpBindAddr",cfg.HttpBindAddr)
 	videoWorkerLogger := rootLogger.Named("videoWorker")
 	workerUID := uuid.NewString()
 	vwCfg := workersupervisor.VideoSupervisorConfig{
@@ -229,6 +236,7 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 	vws, _ := workersupervisor.NewVideoSupervisor(vwCfg, node, videoWorkerLogger)
 	vws.Run(ctx)
 
+	log.Info("Starting HTTP server", "HttpBindAddr", cfg.HttpBindAddr)
 	httpLogger := rootLogger.Named("httpServer")
 	s := server.New(node, httpLogger, vnm)
 	s.Run(cfg.HttpBindAddr)

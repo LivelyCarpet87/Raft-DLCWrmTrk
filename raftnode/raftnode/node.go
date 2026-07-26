@@ -4,48 +4,47 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
-	"io"
 	"os"
-    "path/filepath"
+	"path/filepath"
 	"time"
-	"encoding/json"
 
-	"github.com/hashicorp/raft"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/raft"
 	bolt "github.com/hashicorp/raft-boltdb"
 
 	"raft-dlcwrmtrk/fsm"
-	"raft-dlcwrmtrk/raftcommands"
 	"raft-dlcwrmtrk/httpserver/responsetypes"
+	"raft-dlcwrmtrk/raftcommands"
 )
 
 type Node struct {
 	NodeID string
-	Raft *raft.Raft
-	FSM  *fsm.FSM
+	Raft   *raft.Raft
+	FSM    *fsm.FSM
 }
 
-
-func NewNode(basePath string, id string, raftAddr string, failureDomain string, httpAddr string,  rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
+func NewNode(basePath string, id string, raftAddr string, failureDomain string, httpAddr string, rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
 
 	raftLogger := rootLogger.Named("raft")
-	fsmLogger  := rootLogger.Named("fsm")
+	fsmLogger := rootLogger.Named("fsm")
 
-	raftPath := filepath.Join(basePath,"raft")
-	fsmPath := filepath.Join(basePath,"fsm")
+	raftPath := filepath.Join(basePath, "raft")
+	fsmPath := filepath.Join(basePath, "fsm")
 
 	dbPath := filepath.Join(fsmPath, "fsm.db")
 	db, _ := sql.Open("sqlite", dbPath)
 	fsm.InitSchema(db)
 	f := fsm.New(db, fsmPath, fsmLogger)
 
-	logStore, _ := bolt.NewBoltStore(filepath.Join(raftPath,"log.bolt"))
-	stableStore, _ := bolt.NewBoltStore(filepath.Join(raftPath,"stable.bolt"))
+	logStore, _ := bolt.NewBoltStore(filepath.Join(raftPath, "log.bolt"))
+	stableStore, _ := bolt.NewBoltStore(filepath.Join(raftPath, "stable.bolt"))
 
-	snapshots, err := raft.NewFileSnapshotStore(filepath.Join(raftPath,"data"), 2, os.Stdout)
+	snapshots, err := raft.NewFileSnapshotStore(filepath.Join(raftPath, "data"), 2, os.Stdout)
 	if err != nil {
 		return nil, err
 	}
@@ -88,16 +87,16 @@ func NewNode(basePath string, id string, raftAddr string, failureDomain string, 
 			time.Sleep(50 * time.Millisecond)
 		}
 		addNodeCommand := raftcommands.AddNodeCommand{
-			NodeID: id,
+			NodeID:        id,
 			FailureDomain: failureDomain,
-			RaftAddr: raftAddr,
-			HttpAddr: httpAddr,
+			RaftAddr:      raftAddr,
+			HttpAddr:      httpAddr,
 		}
 		cmdData, _ := json.Marshal(addNodeCommand)
 
 		cmdEnv := raftcommands.CommandEnvelope{
 			Command: "AddNode",
-			Data: cmdData,
+			Data:    cmdData,
 		}
 		cmdEnvData, _ := json.Marshal(cmdEnv)
 
@@ -106,15 +105,15 @@ func NewNode(basePath string, id string, raftAddr string, failureDomain string, 
 
 	return &Node{
 		NodeID: id,
-		Raft: r,
-		FSM:  f,
+		Raft:   r,
+		FSM:    f,
 	}, nil
 }
 
-func (n *Node) ProxyApply(cmdEnv raftcommands.CommandEnvelope) (error) {
+func (n *Node) ProxyApply(cmdEnv raftcommands.CommandEnvelope) error {
 	cmdEnvData, _ := json.Marshal(cmdEnv)
 
-	if (n.IsLeader()){
+	if n.IsLeader() {
 		return n.Raft.Apply(cmdEnvData, 5*time.Second).Error()
 	} else {
 		leader, err := n.GetLeaderHttpAddr()
@@ -139,10 +138,10 @@ func (n *Node) ProxyApply(cmdEnv raftcommands.CommandEnvelope) (error) {
 		}
 
 		var response responsetypes.Response[any]
-		if (json.Unmarshal(body, &response) != nil) {
+		if json.Unmarshal(body, &response) != nil {
 			panic(err)
 		}
-		if (!response.Success){
+		if !response.Success {
 			return errors.New(response.Error.Message)
 		}
 
@@ -156,15 +155,15 @@ func (n *Node) GetReadOnlyTx(ctx context.Context) (*sql.Tx, error) {
 
 func (n *Node) AddRaftNode(nodeID string, failureDomain string, raftAddr string, httpAddr string) error {
 	addNodeCommand := raftcommands.AddNodeCommand{
-		NodeID: nodeID,
+		NodeID:        nodeID,
 		FailureDomain: failureDomain,
-		RaftAddr: raftAddr,
-		HttpAddr: httpAddr,
+		RaftAddr:      raftAddr,
+		HttpAddr:      httpAddr,
 	}
 	cmdData, _ := json.Marshal(addNodeCommand)
 	cmdEnv := raftcommands.CommandEnvelope{
 		Command: "AddNode",
-		Data: cmdData,
+		Data:    cmdData,
 	}
 	cmdEnvData, _ := json.Marshal(cmdEnv)
 	applyFuture := n.Raft.Apply(cmdEnvData, 5*time.Second) // TODO: Detect and fix if metadata applied but voter not added

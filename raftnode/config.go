@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
-    "path/filepath"
+	"path/filepath"
 	"text/template"
 
 	"github.com/docker/go-units"
@@ -11,27 +11,27 @@ import (
 )
 
 type ConfigYaml struct {
-	BasePath string `yaml:"base_path"`
-	NodeID string `yaml:"node_id"`
+	BasePath      string `yaml:"base_path"`
+	NodeID        string `yaml:"node_id"`
 	FailureDomain string `yaml:"failure_domain"`
-	RaftBindAddr string `yaml:"raft_bind_addr"`
-	HttpBindAddr string `yaml:"http_bind_addr"`
+	RaftBindAddr  string `yaml:"raft_bind_addr"`
+	HttpBindAddr  string `yaml:"http_bind_addr"`
 
 	Storage struct {
-		NumVNodes int `yaml:"num_vnodes"`
-		MaxStorage string  `yaml:"max_storage"`
+		NumVNodes  int    `yaml:"num_vnodes"`
+		MaxStorage string `yaml:"max_storage"`
 	} `yaml:"storage"`
 }
 
 type Config struct {
-	BasePath string
-	NodeID string 
+	BasePath      string
+	NodeID        string
 	FailureDomain string
-	RaftBindAddr string 
-	HttpBindAddr string 
+	RaftBindAddr  string
+	HttpBindAddr  string
 
 	Storage struct {
-		NumVNodes int
+		NumVNodes  int
 		MaxStorage int64
 	}
 }
@@ -60,8 +60,14 @@ failure_domain: CHANGE_ME_FAILURE_DOMAIN_Room_A113
 # This address must be advertiseable
 raft_bind_addr: 127.0.0.1:7000
 
-# Address this node listens on for HTTP.
-http_bind_addr: 0.0.0.0:8000
+http:
+  # Address this node listens on for HTTP.
+  http_bind_addr: 0.0.0.0:8000
+  # URL that this node is reached from
+  http_public_url: http://127.0.0.1:8000
+  # Trusted proxies (IP addresses or CIDRs)
+  # See: https://gin-gonic.com/en/docs/server-config/trusted-proxies/
+  trusted_proxies: []
 
 storage:
   # Number of vNodes to allocate on this node.
@@ -71,6 +77,13 @@ storage:
   # Maximum bytes that EACH vNode may store. 
   # Make sure not to exceed total available space.
   max_storage: 20GiB
+
+python:
+  # Full path to python binary
+  # Remember this changes when using conda environments
+  python_bin_path: /path/to/conda/bin/python3
+  python_video_worker: /path/to/video_worker.py
+  python_norm_worker: /path/to/norm_worker.py
 `
 
 func LoadConfig(path string) (*Config, error) {
@@ -92,16 +105,16 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, storageSizeErr
 	}
 	cfg := Config{
-		BasePath: cfgYml.BasePath,
-		NodeID: cfgYml.NodeID,
+		BasePath:      cfgYml.BasePath,
+		NodeID:        cfgYml.NodeID,
 		FailureDomain: cfgYml.FailureDomain,
-		RaftBindAddr: cfgYml.RaftBindAddr,
-		HttpBindAddr: cfgYml.HttpBindAddr,
+		RaftBindAddr:  cfgYml.RaftBindAddr,
+		HttpBindAddr:  cfgYml.HttpBindAddr,
 		Storage: struct {
-			NumVNodes int
+			NumVNodes  int
 			MaxStorage int64
 		}{
-			NumVNodes: cfgYml.Storage.NumVNodes,
+			NumVNodes:  cfgYml.Storage.NumVNodes,
 			MaxStorage: maxStorage,
 		},
 	}
@@ -127,4 +140,3 @@ func WriteConfig(path string) error {
 
 	return os.WriteFile(path, buf.Bytes(), 0644)
 }
-

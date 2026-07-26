@@ -5,15 +5,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/hashicorp/go-hclog"
 
-	"raft-dlcwrmtrk/raftnode"
 	rt "raft-dlcwrmtrk/httpserver/responsetypes"
+	"raft-dlcwrmtrk/raftnode"
 	"raft-dlcwrmtrk/vnode"
 )
 
 type HTTPServer struct {
-    RaftNode *raftnode.Node
-	Router *gin.Engine
-	Logger hclog.Logger
+	RaftNode     *raftnode.Node
+	Router       *gin.Engine
+	Logger       hclog.Logger
 	VNodeManager *vnode.VNodeManager
 }
 
@@ -32,15 +32,15 @@ func Fail(c *gin.Context, status int, code, message string) {
 }
 
 func (s *HTTPServer) Run(addr string) error {
-    return s.Router.Run(addr)
+	return s.Router.Run(addr)
 }
 
 func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) *HTTPServer {
 	router := gin.Default()
 	s := &HTTPServer{
-    	RaftNode: raftNode,
-		Router: router,
-		Logger: Logger,
+		RaftNode:     raftNode,
+		Router:       router,
+		Logger:       Logger,
 		VNodeManager: vnm,
 	}
 	router.Use(cors.Default())
@@ -53,15 +53,14 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 		// raftApi.POST("/list", s.ApplyCommand)
 	}
 
-	
 	api := router.Group("/api")
 	{
-		
+
 		filer := api.Group("/filer")
 		{
 			filer.GET("/:fileMD5", s.serveFile)
 		}
-		
+
 		experiment := api.Group("/experiment")
 		{
 			tags := experiment.Group("/tags")
@@ -71,7 +70,7 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 				//tags.POST("/rm", getUser)
 				//tags.POST("/update", getUser)
 			}
-			
+
 			batches := experiment.Group("/batches")
 			{
 				batches.POST("/create", s.AddBatch)
@@ -79,26 +78,27 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 				//batches.GET("/get", getUser)
 				batches.POST("/update", s.UpdateBatch)
 			}
-			
+
 			videos := experiment.Group("/videos")
 			{
 				videos.POST("/upload", s.AddSrcVideo)
 				//videos.GET("/status", a)
 			}
-			
+
 		}
 		/*
-		metrics := api.Group("/metrics")
-		{
-			metrics.GET("/health", listUsers)
-			metrics.GET("/status", getUser)
-		}
-		auth := api.Group("/auth")
-		{
-			auth.GET("/login", listUsers)
-			auth.GET("/logout", getUser)
-		}
+			metrics := api.Group("/metrics")
+			{
+				metrics.GET("/health", listUsers)
+				metrics.GET("/status", getUser)
+			}
+			auth := api.Group("/auth")
+			{
+				auth.GET("/login", listUsers)
+				auth.GET("/logout", getUser)
+			}
 		*/
 	}
+
 	return s
 }

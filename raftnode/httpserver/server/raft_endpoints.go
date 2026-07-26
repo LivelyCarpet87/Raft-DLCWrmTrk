@@ -1,21 +1,21 @@
 package server
 
 import (
-	"net/http"
-	"io"
-	"time"
 	"encoding/json"
+	"io"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"raft-dlcwrmtrk/raftcommands"
 	rt "raft-dlcwrmtrk/httpserver/responsetypes"
+	"raft-dlcwrmtrk/raftcommands"
 )
 
 func (s *HTTPServer) RedirectIfNotLeader(c *gin.Context) bool {
-	if (!s.RaftNode.IsLeader()) {
+	if !s.RaftNode.IsLeader() {
 		leaderHttpAddr, err := s.RaftNode.GetLeaderHttpAddr()
-		if (err != nil){
+		if err != nil {
 			Fail(c, 503, "RAFT_ERROR", "unable to find leader")
 			return true
 		}
@@ -31,10 +31,10 @@ func (s *HTTPServer) ApplyCommand(c *gin.Context) {
 	}
 
 	commandBytes, err := io.ReadAll(c.Request.Body)
-    if err != nil {
-        c.JSON(400, gin.H{"error": "invalid body"})
-        return
-    }
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid body"})
+		return
+	}
 
 	var cmdEnv raftcommands.CommandEnvelope
 	if err := json.Unmarshal(commandBytes, &cmdEnv); err != nil {
@@ -43,10 +43,10 @@ func (s *HTTPServer) ApplyCommand(c *gin.Context) {
 		return
 	}
 
-	applyFuture :=  s.RaftNode.Raft.Apply(commandBytes, 5*time.Second)
+	applyFuture := s.RaftNode.Raft.Apply(commandBytes, 5*time.Second)
 	applyErr := applyFuture.Error()
-	if (applyErr != nil){
-		s.Logger.Error("Error applying command", "err",applyErr)
+	if applyErr != nil {
+		s.Logger.Error("Error applying command", "err", applyErr)
 		Fail(c, 503, "RAFT_ERROR", "error when applying command")
 		return
 	}
@@ -57,7 +57,7 @@ func (s *HTTPServer) ApplyCommand(c *gin.Context) {
 
 func (s *HTTPServer) WhoisLeader(c *gin.Context) {
 	leaderHttpAddr, err := s.RaftNode.GetLeaderHttpAddr()
-	if (err != nil) {
+	if err != nil {
 		Fail(c, 503, "NO_RAFT_LEADER", "there is no RAFT leader elected")
 		return
 	}
@@ -75,14 +75,14 @@ func (s *HTTPServer) JoinCluster(c *gin.Context) {
 
 	nodeID := c.PostForm("nodeID") // TODO: Check that nodeID is not duplicated already in cluster
 	failureDomain := c.PostForm("failureDomain")
-    raftAddr := c.PostForm("raftAddr")
+	raftAddr := c.PostForm("raftAddr")
 	httpAddr := c.PostForm("httpAddr")
 
 	err := s.RaftNode.AddRaftNode(nodeID, failureDomain, raftAddr, httpAddr)
-	if (err != nil) {
+	if err != nil {
 		Fail(c, 503, "RAFT_ERROR", "failed to add node")
 		return
 	}
-	OK(c,200,nil)
+	OK(c, 200, nil)
 	return
 }

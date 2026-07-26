@@ -1,9 +1,9 @@
 package responsetypes
 
 type Response[T any] struct {
-	Success bool        `json:"success"`
-	Data    *T 			`json:"data,omitempty"`
-	Error   *ErrorInfo  `json:"error,omitempty"`
+	Success bool       `json:"success"`
+	Data    *T         `json:"data,omitempty"`
+	Error   *ErrorInfo `json:"error,omitempty"`
 }
 
 type ErrorInfo struct {
