@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/hashicorp/go-hclog"
 
@@ -42,6 +43,7 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 		Logger: Logger,
 		VNodeManager: vnm,
 	}
+	router.Use(cors.Default())
 
 	raftApi := router.Group("/raft")
 	{
