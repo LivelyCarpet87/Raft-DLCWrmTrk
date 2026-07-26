@@ -26,3 +26,4 @@ raftnode/raft-dlcwrmtrk
 *.db-wal
 *.yaml
 /raftnode/testing
+*.pyc
