@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -340,6 +341,7 @@ func (s *HTTPServer) AddSrcVideo(c *gin.Context) {
 	batchUID := c.PostForm("batchUID")
 	uploadTime := time.Now().UTC().Format(time.RFC3339Nano)
 	fileHeader, err := c.FormFile("videoFile")
+	numIndvStr := c.PostForm("numIndv")
 	if err != nil {
 		Fail(c, 400, "BAD_INPUT", "unable to load video file")
 		return
@@ -347,6 +349,18 @@ func (s *HTTPServer) AddSrcVideo(c *gin.Context) {
 
 	if batchUID == "" {
 		Fail(c, 400, "BAD_INPUT", "batchUID cannot be empty")
+		return
+	}
+
+	var numIndv int
+	if numIndvStr == "" {
+		Fail(c, 400, "BAD_INPUT", "numIndv cannot be empty")
+		return
+	} else if numIndv, err = strconv.Atoi(numIndvStr); err != nil {
+		Fail(c, 400, "BAD_INPUT", "numIndv must be an integer")
+		return
+	} else if numIndv <= 0 {
+		Fail(c, 400, "BAD_INPUT", "numIndv must be greater than zero")
 		return
 	}
 
@@ -408,6 +422,7 @@ func (s *HTTPServer) AddSrcVideo(c *gin.Context) {
 		BatchUID:      batchUID,
 		VideoMD5:      vidMD5,
 		VideoName:     filename,
+		NumIndv:       numIndv,
 		UploadTime:    uploadTime,
 		VNodeID:       vNodeID,
 		VideoFileSize: fileSize,

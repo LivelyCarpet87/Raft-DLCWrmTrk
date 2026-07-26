@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/raft"
 
 	"raft-dlcwrmtrk/raftcommands"
+	"raft-dlcwrmtrk/raftcommands/jobcontexts"
 )
 
 type FSM struct {
@@ -86,6 +87,7 @@ func InitSchema(db *sql.DB) error {
 		src_video_md5 TEXT NOT NULL,
 		batch_uid TEXT NOT NULL,
 		video_name TEXT NOT NULL,
+		num_indv INTEGER NOT NULL,
 		upload_time TEXT NOT NULL,
 		PRIMARY KEY(src_video_md5, batch_uid)
 	);
@@ -157,6 +159,7 @@ func InitSchema(db *sql.DB) error {
 		('videoJobTimeout',300), -- constant polling
 		('normJobTimeout',120), -- constant polling
 		('fileReplicaCount', 3), -- number of replicas to make
+		('normDistance', 5.0), -- distance between normalizer markers, in millimeters
 		('version', "1.0"); -- release version (for future migration detection)
 
 	PRAGMA journal_mode=WAL;
@@ -469,12 +472,26 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 
+		var normDistance float64
+		if err := tx.QueryRow(
+			"SELECT param_value FROM params WHERE param_name='normDistance'",
+		).Scan(&normDistance); err != nil {
+			f.logger.Error("failed to read param normDistance", "err", err)
+			return err
+		}
+
+		jobContext := jobcontexts.NormJobContext{
+			NormFileMD5:  cmd.NormMD5,
+			NormDistance: normDistance,
+		}
+		jobContextBlob, _ := json.Marshal(jobContext)
+
 		if _, err := tx.Exec(`
-			INSERT OR IGNORE INTO norm_jobs(enrollment_time, 
-			file_md5, attempt_counter, 
-			status)
-			VALUES(?,?,1,'pending')
-			`, cmd.CreationTime, cmd.NormMD5); err != nil {
+			INSERT OR IGNORE INTO jobs(job_id, attempt_counter, 
+			job_type, enrollment_time, 
+			status, job_context)
+			VALUES(?,1,'norm',?,'pending'?)
+			`, cmd.NormMD5, cmd.CreationTime, jobContextBlob); err != nil {
 			f.logger.Error("AddBatch failed to enroll norm job", "err", err)
 			return err
 		}
@@ -530,10 +547,10 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		json.Unmarshal(cmdEnv.Data, &cmd)
 		if _, err := tx.Exec(`
 			INSERT OR IGNORE INTO src_videos(src_video_md5, batch_uid, 
-			video_name, upload_time)
-			VALUES(?,?,?,?)
+			video_name, num_indv, upload_time)
+			VALUES(?,?,?,?,?,?)
 			`, cmd.VideoMD5, cmd.BatchUID,
-			cmd.VideoName, cmd.UploadTime); err != nil {
+			cmd.VideoName, cmd.NumIndv, cmd.UploadTime); err != nil {
 			f.logger.Error("AddSrcVideo failed to create video entry", "err", err)
 			return err
 		}
@@ -542,13 +559,25 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			f.logger.Error("AddSrcVideo failed replicate files", "err", err)
 			return err
 		}
+
+		jobContext := jobcontexts.DlcJobContext{
+			VideoFileMD5: cmd.VideoMD5,
+			NumIndv:      cmd.NumIndv,
+		}
+		jobContextBlob, _ := json.Marshal(jobContext)
+
 		if _, err := tx.Exec(`
-			INSERT OR IGNORE INTO video_jobs(enrollment_time, 
-			file_md5, attempt_counter, 
-			status)
-			VALUES(?,?,1,'pending')
-			`, cmd.UploadTime, cmd.VideoMD5); err != nil {
-			f.logger.Error("AddSrcVideo failed to enroll video job", "err", err)
+			INSERT INTO jobs(job_id, attempt_counter, 
+			job_type, enrollment_time, 
+			status, job_context)
+			VALUES(?,1,'dlc',?,'pending'?)
+			ON CONFLICT(job_id, attempt_counter)
+			DO UPDATE SET
+				enrollment_time = excluded.enrollment_time
+				job_context = excluded.job_context
+			WHERE jobs.enrollment_time < excluded.enrollment_time AND status = 'pending'
+			`, cmd.VideoMD5, cmd.UploadTime, jobContextBlob); err != nil {
+			f.logger.Error("AddSrcVideo failed to enroll dlc job", "err", err)
 			return err
 		}
 

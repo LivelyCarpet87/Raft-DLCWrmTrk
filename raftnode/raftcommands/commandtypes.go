@@ -60,6 +60,7 @@ type AddSrcVideoCommand struct {
 	BatchUID      string `json:"batchUID"`
 	VideoMD5      string `json:"videoMD5"`
 	VideoName     string `json:"videoName"`
+	NumIndv       int    `json:"numIndv"`
 	UploadTime    string `json:"uploadTime"`
 	VNodeID       string `json:"vNodeID"`
 	VideoFileSize int64  `json:"videoFileSize"`
