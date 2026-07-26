@@ -490,7 +490,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			INSERT OR IGNORE INTO jobs(job_id, attempt_counter, 
 			job_type, enrollment_time, 
 			status, job_context)
-			VALUES(?,1,'norm',?,'pending'?)
+			VALUES(?,1,'norm',?,'pending',?)
 			`, cmd.NormMD5, cmd.CreationTime, jobContextBlob); err != nil {
 			f.logger.Error("AddBatch failed to enroll norm job", "err", err)
 			return err
@@ -548,7 +548,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		if _, err := tx.Exec(`
 			INSERT OR IGNORE INTO src_videos(src_video_md5, batch_uid, 
 			video_name, num_indv, upload_time)
-			VALUES(?,?,?,?,?,?)
+			VALUES(?,?,?,?,?)
 			`, cmd.VideoMD5, cmd.BatchUID,
 			cmd.VideoName, cmd.NumIndv, cmd.UploadTime); err != nil {
 			f.logger.Error("AddSrcVideo failed to create video entry", "err", err)
@@ -570,10 +570,10 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			INSERT INTO jobs(job_id, attempt_counter, 
 			job_type, enrollment_time, 
 			status, job_context)
-			VALUES(?,1,'dlc',?,'pending'?)
+			VALUES(?,1,'dlc',?,'pending',?)
 			ON CONFLICT(job_id, attempt_counter)
 			DO UPDATE SET
-				enrollment_time = excluded.enrollment_time
+				enrollment_time = excluded.enrollment_time,
 				job_context = excluded.job_context
 			WHERE jobs.enrollment_time < excluded.enrollment_time AND status = 'pending'
 			`, cmd.VideoMD5, cmd.UploadTime, jobContextBlob); err != nil {
