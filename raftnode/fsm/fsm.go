@@ -156,7 +156,7 @@ func InitSchema(db *sql.DB) error {
 		('vNodeTransferTimeout',60), -- trigger by node, then runs every 30 seconds
 		('videoJobTimeout',300), -- constant polling
 		('normJobTimeout',120), -- constant polling
-		('fileReplicaCount', 3); -- number of replicas to make
+		('fileReplicaCount', 3), -- number of replicas to make
 		('version', "1.0"); -- release version (for future migration detection)
 
 	PRAGMA journal_mode=WAL;
