@@ -230,7 +230,7 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		DlcCfgPath:       "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/testing/DLC-WrmTrk-Tyllis Xu-2025-10-25/config.yaml",
 		DlcShuffle:       5,
 		PythonBinPath:    "/home/livelycarpet87/miniforge3/envs/DEEPLABCUT/bin/python3",
-		PythonWorkerPath: "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/videoworker/video_worker.py",
+		PythonWorkerPath: "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/workersupervisor/video_worker.py",
 		StepTime:         0.1,
 	}
 

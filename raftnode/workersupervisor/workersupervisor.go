@@ -157,6 +157,8 @@ func (s *Supervisor) silenceWatchdog(ctx context.Context) {
 				if currentPhase != "computing" {
 					continue
 				}
+			} else {
+				continue
 			}
 			if s.sink == nil {
 				continue
