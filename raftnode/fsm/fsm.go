@@ -603,6 +603,38 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 				"err", err)
 			return err
 		}
+	case "AssignJob":
+		var cmd raftcommands.AssignJobCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		// Check is job is pending
+		// Check if worker is free
+		// Assign job to worker
+		if _, err := tx.Exec(`
+			UPDATE jobs SET
+				status = 'assigned',
+				assignment_time = ?,
+				worker_uid = ?
+			WHERE job_id = ? AND attempt_counter = ? AND status = 'pending'
+			`, cmd.AssignmentTime, cmd.WorkerUID,
+			cmd.JobID, cmd.AttemptCounter); err != nil {
+			f.logger.Error("Failed to mark job as assigned to worker",
+				"job_id", cmd.JobID,
+				"attempt_counter", cmd.AttemptCounter,
+				"worker_uid", cmd.WorkerUID,
+				"err", err)
+			return err
+		}
+		// Mark worker as assigned
+		if _, err := tx.Exec(`
+			UPDATE workers SET
+				status = 'assigned'
+			WHERE worker_uid = ?
+			`, cmd.WorkerUID); err != nil {
+			f.logger.Error("Failed to mark worker as assigned",
+				"worker_uid", cmd.WorkerUID,
+				"err", err)
+			return err
+		}
 	default:
 		f.logger.Error("unknown raft command", "cmd", cmdEnv.Command)
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))

@@ -26,12 +26,14 @@ type Node struct {
 	NodeID string
 	Raft   *raft.Raft
 	FSM    *fsm.FSM
+	Logger hclog.Logger
 }
 
 func NewNode(basePath string, id string, raftAddr string, failureDomain string, httpAddr string, rootLogger hclog.Logger, bootstrap bool) (*Node, error) {
 
 	raftLogger := rootLogger.Named("raft")
 	fsmLogger := rootLogger.Named("fsm")
+	nodeLogger := rootLogger.Named("node")
 
 	raftPath := filepath.Join(basePath, "raft")
 	fsmPath := filepath.Join(basePath, "fsm")
@@ -107,6 +109,7 @@ func NewNode(basePath string, id string, raftAddr string, failureDomain string, 
 		NodeID: id,
 		Raft:   r,
 		FSM:    f,
+		Logger: nodeLogger,
 	}, nil
 }
 
@@ -200,4 +203,85 @@ func (n *Node) GetLeaderHttpAddr() (string, error) {
 
 func (n *Node) GetRaftNodeID() string {
 	return n.NodeID
+}
+
+func (n *Node) ClusterMaintenance() {
+	pollingTicker := time.NewTicker(500 * time.Millisecond)
+
+	for {
+		select {
+		case <-pollingTicker.C:
+			// Only run if is leader
+			if !n.IsLeader() {
+				continue
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+			tx, err := n.FSM.GetReadOnlyTx(ctx)
+			if err != nil {
+				cancel()
+				continue
+			}
+			oldestJobs, err := tx.Query(`
+			SELECT job_id, attempt_counter, job_type
+			FROM ( 
+				SELECT 
+					*, 
+					ROW_NUMBER() OVER 
+					( PARTITION BY job_type ORDER BY enrollment_time, attempt_counter, job_id ) 
+					AS rn 
+				FROM jobs 
+				WHERE status = 'pending' 
+			) WHERE rn = 1;
+			`)
+			if err != nil {
+				cancel()
+				continue
+			}
+			type PendingJob struct {
+				JobID          string
+				AttemptCounter int
+				JobType        string
+			}
+
+			var pendingJobs []PendingJob
+
+			for oldestJobs.Next() { // For oldest pending job of each type
+				var pj PendingJob
+				if err := oldestJobs.Scan(&pj.JobID, &pj.AttemptCounter, &pj.JobType); err != nil {
+					oldestJobs.Close()
+					cancel()
+					continue
+				}
+				pendingJobs = append(pendingJobs, pj)
+			}
+			oldestJobs.Close()
+			for _, pj := range pendingJobs {
+				var workerUID string
+				err = tx.QueryRow(
+					`
+					SELECT worker_uid
+					FROM workers
+					WHERE worker_type = ? AND status = 'free'
+					ORDER BY last_heartbeat_time DESC
+					LIMIT 1;
+				`, pj.JobType).Scan(&workerUID)
+				if err != nil {
+					continue
+				}
+
+				assignJobCommand := raftcommands.AssignJobCommand{
+					JobID:          pj.JobID,
+					AttemptCounter: pj.AttemptCounter,
+					WorkerUID:      workerUID,
+					AssignmentTime: time.Now().UTC().Format(time.RFC3339Nano),
+				}
+				cmdData, _ := json.Marshal(assignJobCommand)
+				cmdEnv := raftcommands.CommandEnvelope{
+					Command: "AssignJob",
+					Data:    cmdData,
+				}
+				n.ProxyApply(cmdEnv)
+			}
+		}
+	}
 }

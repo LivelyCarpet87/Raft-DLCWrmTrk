@@ -72,3 +72,10 @@ type EnrollWorkerCommand struct {
 	WorkerType string `json:"workerType"`
 	EnrollTime string `json:"enrollTime"`
 }
+
+type AssignJobCommand struct {
+	JobID          string `json:"jobID"`
+	AttemptCounter int    `json:"attemptCounter"`
+	WorkerUID      string `json:"workerUID"`
+	AssignmentTime string `json:"assignmentTime"`
+}

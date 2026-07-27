@@ -233,8 +233,11 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		PythonWorkerPath: "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/videoworker/video_worker.py",
 		StepTime:         0.1,
 	}
+
 	vws, _ := workersupervisor.NewVideoSupervisor(vwCfg, node, videoWorkerLogger)
 	vws.Run(ctx)
+
+	go node.ClusterMaintenance()
 
 	log.Info("Starting HTTP server", "HttpBindAddr", cfg.HttpBindAddr)
 	httpLogger := rootLogger.Named("httpServer")
