@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,6 +80,8 @@ func NewSupervisor(cfg SupervisorConfig, factory CmdFactory, RaftNode *raftnode.
 		phase TEXT,   -- idle | loading | computing | postprocessing
 		CHECK(phase IN ('idle','loading','computing','postprocessing'))
 	);
+
+	PRAGMA WAL;
 	`
 
 	_, err = db.Exec(schema)
@@ -187,9 +190,12 @@ func (s *Supervisor) heartbeatWatchdog(ctx context.Context) {
 
 			var lastHeartbeat string
 			if err := s.db.QueryRow(`
-			SELECT phase FROM worker_state
-			ORDER BY last_heartbeat DESC 
+			SELECT heartbeat_time FROM worker_state
+			ORDER BY heartbeat_time DESC 
 			LIMIT 1`).Scan(&lastHeartbeat); err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					s.Logger.Warn("Unable to read heartbeat from worker state", "err", err)
+				}
 				continue
 			}
 			t, err := time.Parse(time.RFC3339Nano, lastHeartbeat)
