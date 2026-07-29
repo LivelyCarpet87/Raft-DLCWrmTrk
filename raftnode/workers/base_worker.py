@@ -33,6 +33,7 @@ class BaseWorker():
         self.work_dir = ""
         self.parser = argparse.ArgumentParser()
         self.state = SharedState()
+        self.exit = False
     
     def enroll_args(self):
         self.parser.add_argument("--db", required=True)
@@ -57,7 +58,7 @@ class BaseWorker():
                     SET ack = 1
                     WHERE rowid = (
                         SELECT rowid
-                        FROM job_context
+                        FROM jobs
                         WHERE ack = 0
                         LIMIT 1
                     )
@@ -80,7 +81,7 @@ class BaseWorker():
         
 
     def heartbeat_loop(self):
-        while True:
+        while not self.exit:
             phase = self.state.get_phase()
             con = self.connect()
             cur = con.cursor()

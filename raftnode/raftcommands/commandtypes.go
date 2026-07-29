@@ -79,3 +79,11 @@ type AssignJobCommand struct {
 	WorkerUID      string `json:"workerUID"`
 	AssignmentTime string `json:"assignmentTime"`
 }
+
+type EndJobCommand struct {
+	JobID          string `json:"jobID"`
+	AttemptCounter int    `json:"attemptCounter"`
+	EndTime        string `json:"endTime"`
+	Status         string `json:"Status"`
+	Data           []byte `json:"data"`
+}

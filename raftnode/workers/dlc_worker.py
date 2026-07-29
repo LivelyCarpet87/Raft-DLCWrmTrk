@@ -69,7 +69,7 @@ class VideoWorker(BaseWorker):
         # print(query)
         return query
 
-    def process_results(self, input_path, intended_numIndv, job_id):
+    def process_results(self, input_path, intended_numIndv):
         memCon = sqlite3.connect(':memory:')
         memCur = memCon.cursor()
 
@@ -102,7 +102,7 @@ class VideoWorker(BaseWorker):
         ''')
 
         intermediates_dir = os.path.join(self.work_dir, "intermediates")
-        filename_head = input_path[:-4]
+        filename_head = os.path.basename(input_path)[:-4]
         filename = [entry for entry in os.listdir(intermediates_dir) if entry.startswith(filename_head) and entry.endswith('.csv')][0]
         lines = []
         with open(os.path.join(self.work_dir, "intermediates",filename), mode='r', newline='', encoding='utf-8') as file:
@@ -147,6 +147,9 @@ class VideoWorker(BaseWorker):
                 )
                 memCon.commit()
 
+        # Loaded data, delete intermediates
+        for filename in os.listdir(intermediates_dir):
+            os.remove(os.path.join(self.work_dir, "intermediates",filename))
         min_frame = memCur.execute("SELECT MIN(frame_num) FROM labels").fetchone()[0]
         max_frame = memCur.execute("SELECT MAX(frame_num) FROM labels").fetchone()[0]
 
@@ -190,9 +193,11 @@ class VideoWorker(BaseWorker):
                                     (int(src_video.get(cv2.CAP_PROP_FRAME_WIDTH)), int(src_video.get(cv2.CAP_PROP_FRAME_HEIGHT))))
         
         if fps*self.step_time < 1:
-            return "failed", "ERROR: frame rate too low"
+            os.remove(input_path)
+            return "failed", "ERROR: frame rate too low", None
         elif src_video.get(cv2.CAP_PROP_FRAME_COUNT) / fps < 8:
-            return "failed", "ERROR: video too short"
+            os.remove(input_path)
+            return "failed", "ERROR: video too short", None
         
         frame_width = int(src_video.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(src_video.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -299,6 +304,8 @@ class VideoWorker(BaseWorker):
             out_video.write(frame)
         src_video.release()
         out_video.release()
+        os.remove(input_path)
+        
         if self.trancode_for_browser:
             (
                 ffmpeg
@@ -341,7 +348,7 @@ class VideoWorker(BaseWorker):
         
         warning = ""
         if len(speed_res) == 0:
-            return "failed", f"ERROR: No speed data found"
+            return "failed", f"ERROR: No speed data found", None
         elif not all(row[2] for row in speed_res):
             blame["unreliable detection"] //= 2 # Underweight unreliable detections, because they are usually caused by other factors
             blame_target = max(blame, key=blame.get) # type: ignore
@@ -353,29 +360,30 @@ class VideoWorker(BaseWorker):
         else:
             blame["unreliable detection"] //= 2 # Underweight unreliable detections, because they are usually caused by other factors
             blame_target = max(blame, key=blame.get) # type: ignore
-            return "failed", f"ERROR: {blame_target}"
+            return "failed", f"ERROR: {blame_target}", None
 
         con = self.connect()
         cur = con.cursor()
 
         for indiv, speed, conf in speed_res:
             cur.execute("""
-                INSERT OR REPLACE INTO results(job_id, indiv, speed, confidence)
-                VALUES (?, ?, ?, ?)
-            """, (job_id, indiv, float(speed), int(conf)))
+                INSERT OR REPLACE INTO results(indiv, speed, confidence)
+                VALUES (?, ?, ?)
+            """, (indiv, float(speed), int(conf)))
 
         con.commit()
         con.close()
         if len(warning) == 0:
-            return "done", "INFO: completed without warnings"
-        return "done", f"WARNING: {warning}"
+            return "done", "INFO: completed without warnings", f'{input_path[:-4]}_labeled.mp4'
+        return "done", f"WARNING: {warning}", f'{input_path[:-4]}_labeled.mp4'
 
     def service_loop(self):
-        while True:
+        while not self.exit:
+            print("polling for work")
             job = self.get_a_job_id()
-            if not job:
+            if job is None:
                 self.state.set_phase('idle')
-                time.sleep(1)
+                time.sleep(5)
                 continue
 
             job_id = job[0]
@@ -384,11 +392,14 @@ class VideoWorker(BaseWorker):
                 con = self.connect()
                 cur = con.cursor()
                 job_context = cur.execute("""
-                SELECT input_path, numInd 
+                SELECT input_path, num_indv
                 FROM job_context
-                WHERE
-                    job_id = ?
-                """, [job_id]).fetchone()
+                """).fetchone()
+                con.close()
+                if job_context is None:
+                    print("panic")
+                    self.exit = True
+                    return
                 input_path, numInd = job_context
                 print(f"[JOB] {job_id}")
 
@@ -398,15 +409,15 @@ class VideoWorker(BaseWorker):
 
                 self.state.set_phase('postprocessing')
                 # Process outputs into results table
-                status, message = self.process_results(input_path, numInd, job_id)
-
+                status, res_message, lab_vid = self.process_results(input_path, numInd)
                 con = self.connect()
                 cur = con.cursor()
                 cur.execute("""
                     UPDATE job_context
-                    SET message = ?
-                    WHERE job_id = ?;
-                """,[message, job_id])
+                    SET 
+                        message = ?,
+                        lab_vid = ?;
+                """,[res_message, lab_vid])
                 con.commit()
                 con.close()
                 self.mark_job_status(job_id, status)
@@ -414,33 +425,33 @@ class VideoWorker(BaseWorker):
             except Exception as e:
                 print("ERROR:", e)
                 traceback.print_exc()
-                con = self.connect()
-                cur = con.cursor()
-                error_msg = f"ERROR: {e}"
-                cur.execute("""
-                    UPDATE job_context
-                    SET mesage = ?
-                    WHERE job_id = ?;
-                """,[error_msg, job_id])
+                # con = self.connect()
+                # cur = con.cursor()
+                # error_msg = f"ERROR: {e}"
+                # cur.execute("""
+                #     UPDATE job_context
+                #     SET message = ?;
+                # """,[error_msg])
+                # con.commit()
+                # con.close()
                 self.mark_job_status(job_id, "crashed")
-                con.commit()
-                con.close()
                 time.sleep(2)
 
     def start(self):
         print("python worker started")
         heartbeat_thread = threading.Thread(
             target=self.heartbeat_loop,
-            name="heartbeat",
+            name="heartbeat"
         )
 
         service_thread = threading.Thread(
             target=self.service_loop,
-            name="service",
+            name="service"
         )
 
         heartbeat_thread.start()
         service_thread.start()
+
 
 if __name__ == "__main__":
     vid_worker = VideoWorker()

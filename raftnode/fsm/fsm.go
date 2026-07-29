@@ -17,6 +17,7 @@ import (
 
 	"raft-dlcwrmtrk/raftcommands"
 	"raft-dlcwrmtrk/raftcommands/jobcontexts"
+	"raft-dlcwrmtrk/raftcommands/jobresults"
 )
 
 type FSM struct {
@@ -89,6 +90,7 @@ func InitSchema(db *sql.DB) error {
 		video_name TEXT NOT NULL,
 		num_indv INTEGER NOT NULL,
 		upload_time TEXT NOT NULL,
+		system_message TEXT,
 		PRIMARY KEY(src_video_md5, batch_uid)
 	);
 
@@ -603,6 +605,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 				"err", err)
 			return err
 		}
+
 	case "AssignJob":
 		var cmd raftcommands.AssignJobCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)
@@ -635,6 +638,141 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 				"err", err)
 			return err
 		}
+
+	case "EndJob":
+		var cmd raftcommands.EndJobCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		jobQ := tx.QueryRow(`
+			UPDATE jobs
+			SET
+				status = ?,
+				end_time = ?
+			WHERE job_id = ? AND attempt_counter = ? AND status = 'assigned'
+			RETURNING job_type, job_context, worker_uid
+			`, cmd.Status, cmd.EndTime,
+			cmd.JobID, cmd.AttemptCounter)
+		var jobType string
+		var jobContext []byte
+		var workerUID string
+		if err := jobQ.Scan(&jobType, &jobContext, &workerUID); err != nil {
+			f.logger.Error("EndJob failed to update state", "err", err)
+			return err
+		}
+		_, err = tx.Exec(
+			`UPDATE workers
+			SET status = 'free'
+			WHERE worker_uid = ? AND status = 'assigned'`,
+			workerUID,
+		)
+		if err != nil {
+			f.logger.Error("EnJob failed to free worker", "err", err)
+			return err
+		}
+		// TODO: Enroll a retry on crashed status
+		switch jobType {
+		case "dlc":
+			if cmd.Status == "crashed" {
+				break
+			}
+			if cmd.Data == nil {
+				f.logger.Error("EndJob got Nil data from dlc job")
+				return errors.New("EndJob got Nil data from dlc job")
+			}
+			var dlcJobResults jobresults.DlcJobResults
+			err = json.Unmarshal(cmd.Data, &dlcJobResults)
+			if err != nil {
+				f.logger.Error("EndJob was unable to unmarshal result data from dlc job", "err", err)
+				break
+			}
+			var dlcJobContext jobcontexts.DlcJobContext
+			err = json.Unmarshal(jobContext, &dlcJobContext)
+			if err != nil {
+				f.logger.Error("EndJob was unable to unmarshal context data from dlc job", "err", err)
+				break
+			}
+
+			_, err = tx.Exec(`
+				UPDATE src_videos 
+				SET system_message = ? 
+				WHERE src_video_md5 = ?`,
+				dlcJobResults.Message,
+				dlcJobContext.VideoFileMD5,
+			)
+			if err != nil {
+				f.logger.Error("EndJob clear system message for dlc job", "err", err)
+				break
+			}
+
+			_, err = tx.Exec(`DELETE FROM tracklets WHERE src_video_md5 = ?`, dlcJobContext.VideoFileMD5)
+			if err != nil {
+				f.logger.Error("EndJob clear existing tracklets for dlc job", "err", err)
+				break
+			}
+
+			for _, entry := range dlcJobResults.Entries {
+				_, err = tx.Exec(`
+					INSERT INTO tracklets (
+						    src_video_md5,
+							track_id,
+							min_speed,
+							max_speed,
+							median_speed,
+							mean_speed,
+							track_len, -- tracking time in seconds
+							worm_len, -- median worm length
+							confidence, -- model confidence score
+							warn_txt -- "GOOD" | warning text
+					)
+					VALUES (?,?,?,?,?,?,?,?,?,?)
+					`,
+					dlcJobContext.VideoFileMD5,
+					entry.Indv,
+					0, // Min Speed Placeholder
+					0, // Max Speed Placeholder
+					0, // Median Speed Placeholder
+					entry.MeanSpeed,
+					0,                // Track Len Placeholder
+					0,                // Worm Len Placeholder
+					entry.Confidence, // Placeholder Confidence Value
+					"",               // Warn Text Placeholder
+				)
+				if err != nil {
+					f.logger.Error("EndJob unable to save tracklet for dlc job", "err", err)
+					break
+				}
+			}
+			if dlcJobResults.VideoFileInfo == nil {
+				break
+			}
+			var dlcLabVideoFileInfo jobresults.DlcLabVideoFileInfo
+			err = json.Unmarshal(dlcJobResults.VideoFileInfo, &dlcLabVideoFileInfo)
+			if err != nil {
+				f.logger.Error("EndJob unable to load labeled video information for dlc job", "err", err)
+				break
+			}
+
+			if err := SpreadFile(dlcLabVideoFileInfo.VNodeID, dlcLabVideoFileInfo.HashMD5, "video/mp4", dlcLabVideoFileInfo.Filesize,
+				cmd.EndTime, tx, f.logger); err != nil {
+				f.logger.Error("Enjob dlc failed replicate labeled video file", "err", err)
+				return err
+			}
+
+			_, err = tx.Exec(`
+				INSERT INTO 
+				labeled_videos(labeled_video_md5, src_video_md5)
+				VALUES(?, ?)`,
+				dlcLabVideoFileInfo.HashMD5,
+				dlcJobContext.VideoFileMD5,
+			)
+			if err != nil {
+				f.logger.Error("Enjob dlc failed record labeled video file", "err", err)
+				return err
+			}
+
+		default:
+			f.logger.Error("EndJob failed to recognize job type", "jobType", jobType)
+		}
+
 	default:
 		f.logger.Error("unknown raft command", "cmd", cmdEnv.Command)
 		return errors.New("unknown raft command: " + string(cmdEnv.Command))

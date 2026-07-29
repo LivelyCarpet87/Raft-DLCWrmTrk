@@ -19,7 +19,7 @@ import (
 	"raft-dlcwrmtrk/httpserver/server"
 	"raft-dlcwrmtrk/raftnode"
 	"raft-dlcwrmtrk/vnode"
-	"raft-dlcwrmtrk/workersupervisor"
+	"raft-dlcwrmtrk/workers"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
@@ -186,7 +186,7 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		form.Add("nodeID", cfg.NodeID)
 		form.Add("raftAddr", cfg.RaftBindAddr)
 		form.Add("failureDomain", cfg.FailureDomain)
-		form.Add("httpAddr", cfg.HttpBindAddr)
+		form.Add("httpAddr", cfg.HttpPublicAddr)
 
 		resp, err := http.PostForm(
 			leader+"/raft/join",
@@ -219,23 +219,23 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 	}
 	vnm.Run(context.Background())
 
-	videoWorkerLogger := rootLogger.Named("videoWorker")
+	dlcWorkerLogger := rootLogger.Named("dlcWorker")
 	workerUID := uuid.NewString()
-	vwCfg := workersupervisor.VideoSupervisorConfig{
-		SupervisorCfg: workersupervisor.SupervisorConfig{
-			WorkerUID: workerUID,
-			WorkDir:   filepath.Join(workerDir, workerUID),
-		},
-		PollMS:           500,
+	workerCfg := workers.WorkerConfig{
+		WorkerUID:  workerUID,
+		WorkerType: "dlc",
+		WorkDir:    filepath.Join(workerDir, workerUID),
+	}
+	dlcCfg := workers.DlcRunnerModuleConfig{
+		PythonBinPath:    "/home/livelycarpet87/miniforge3/envs/DEEPLABCUT/bin/python3",
+		PythonWorkerPath: "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/workers/dlc_worker.py",
+		StepTime:         0.1,
 		DlcCfgPath:       "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/testing/DLC-WrmTrk-Tyllis Xu-2025-10-25/config.yaml",
 		DlcShuffle:       5,
-		PythonBinPath:    "/home/livelycarpet87/miniforge3/envs/DEEPLABCUT/bin/python3",
-		PythonWorkerPath: "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/workersupervisor/video_worker.py",
-		StepTime:         0.1,
 	}
-
-	vws, _ := workersupervisor.NewVideoSupervisor(vwCfg, node, videoWorkerLogger)
-	vws.Run(ctx)
+	dlcRunnerModule, _ := workers.NewDlcRunnerModule(dlcCfg, vnm, dlcWorkerLogger)
+	dlcRunner, _ := workers.NewRunner(workerCfg, dlcRunnerModule, node, dlcWorkerLogger)
+	go dlcRunner.Run(ctx)
 
 	go node.ClusterMaintenance()
 
