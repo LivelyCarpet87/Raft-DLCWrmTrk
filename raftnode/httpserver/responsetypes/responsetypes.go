@@ -29,8 +29,7 @@ type CreateBatchResponse struct {
 	BatchUID string `json:"batchUID"`
 }
 
-type ListBatchesEntry struct {
-	BatchUID     string   `json:"batchUID"`
+type GetBatcheResponse struct {
 	CreationTime string   `json:"creationTime"`
 	BatchName    string   `json:"batchName"`
 	PrimaryTag   string   `json:"primaryTag"`

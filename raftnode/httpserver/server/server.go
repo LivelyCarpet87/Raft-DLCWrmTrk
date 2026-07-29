@@ -75,7 +75,7 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 			{
 				batches.POST("/create", s.AddBatch)
 				batches.GET("/list", s.ListBatches)
-				//batches.GET("/get", getUser)
+				batches.GET("/get", s.GetBatch)
 				batches.POST("/update", s.UpdateBatch)
 			}
 
