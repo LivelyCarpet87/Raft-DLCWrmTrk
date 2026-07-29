@@ -42,5 +42,6 @@ type ListBatchesEntry struct {
 }
 
 type ListBatchesResponse struct {
-	Batches []ListBatchesEntry `json:"batches"`
+	BatchUIDs []string `json:"batchUIDs"`
+}
 }

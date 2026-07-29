@@ -350,8 +350,7 @@ func (s *HTTPServer) ListBatches(c *gin.Context) {
 
 	query := `
         SELECT 
-			batch_uid, creation_time, batch_name,
-			primary_tag, secondary_tag, norm_md5, note
+			batch_uid
         FROM batches
         WHERE 1=1
     `
@@ -374,91 +373,41 @@ func (s *HTTPServer) ListBatches(c *gin.Context) {
 		Fail(c, 503, "FSM_READ_ERR", "query to list batches failed")
 		return
 	}
-	var batches []rt.ListBatchesEntry
+	var batchUIDs []string
 	for bRows.Next() {
-		var b rt.ListBatchesEntry
-		if err := bRows.Scan(&b.BatchUID, &b.CreationTime,
-			&b.BatchName, &b.PrimaryTag, &b.SecondaryTag, &b.NormMD5, &b.Note); err != nil {
+		var uid string
+		if err := bRows.Scan(&uid); err != nil {
 			s.Logger.Error("SQLite3 Query Failed", "err", err)
 			Fail(c, 503, "FSM_READ_ERR", "error parsing query results")
 			bRows.Close()
 			readOnlyTx.Rollback()
 			return
 		}
-		batches = append(batches, b)
+		batchUIDs = append(batchUIDs, uid)
 	}
 	bRows.Close()
-
-	for i := range batches {
-		var conditions []string
-		cRows, err := readOnlyTx.Query(
-			`SELECT tag_name FROM conditions WHERE batch_uid = ?`,
-			batches[i].BatchUID,
-		)
-		if err != nil {
-			s.Logger.Error("SQLite3 Query Failed", "err", err)
-			cRows.Close()
-			readOnlyTx.Rollback()
-			Fail(c, 503, "FSM_READ_ERR", "query to list conditions failed")
-			return
-		}
-		for cRows.Next() {
-			var t string
-			if err := cRows.Scan(&t); err != nil {
-				s.Logger.Error("SQLite3 Query Failed", "err", err)
-				Fail(c, 503, "FSM_READ_ERR", "error parsing query results")
-				cRows.Close()
-				readOnlyTx.Rollback()
-				return
-			}
-			conditions = append(conditions, t)
-		}
-		cRows.Close()
-		batches[i].Conditions = conditions
-		s.Logger.Trace("Found conditions for batch",
-			"batchUID", batches[i].BatchUID,
-			"conditions", conditions,
-		)
-
-		var videoMD5s []string
-		vRows, err := readOnlyTx.Query(
-			`SELECT src_video_md5 FROM src_videos WHERE batch_uid = ?`,
-			batches[i].BatchUID,
-		)
-		if err != nil {
-			s.Logger.Error("SQLite3 Query Failed", "err", err)
-			Fail(c, 503, "FSM_READ_ERR", "query to list src videos failed")
-			vRows.Close()
-			readOnlyTx.Rollback()
-			return
-		}
-		for vRows.Next() {
-			var v string
-			if err := vRows.Scan(&v); err != nil {
-				s.Logger.Error("SQLite3 Query Failed", "err", err)
-				Fail(c, 503, "FSM_READ_ERR", "error parsing query results")
-				vRows.Close()
-				readOnlyTx.Rollback()
-				return
-			}
-			videoMD5s = append(videoMD5s, v)
-		}
-		vRows.Close()
-		batches[i].VideoMD5s = videoMD5s
-		s.Logger.Trace("Found videos for batch",
-			"batchUID", batches[i].BatchUID,
-			"videoMD5s", videoMD5s,
-		)
-	}
 	readOnlyTx.Rollback()
 
-	s.Logger.Trace("Found batches", "batches", batches)
+	s.Logger.Trace("Found batches", "batchUIDs", batchUIDs)
 	respData := rt.ListBatchesResponse{
-		Batches: batches,
+		BatchUIDs: batchUIDs,
 	}
 
 	OK(c, 200, respData)
 	return
+}
+			readOnlyTx.Rollback()
+			return
+		}
+		cRows.Close()
+			s.Logger.Error("SQLite3 Query Failed", "err", err)
+			readOnlyTx.Rollback()
+			return
+		}
+		vRows.Close()
+	}
+	readOnlyTx.Rollback()
+
 }
 
 func (s *HTTPServer) AddSrcVideo(c *gin.Context) {
