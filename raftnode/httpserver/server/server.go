@@ -74,7 +74,7 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 			batches := experiment.Group("/batches")
 			{
 				batches.POST("/create", s.AddBatch)
-				//batches.GET("/list", getUser)
+				batches.GET("/list", s.ListBatches)
 				//batches.GET("/get", getUser)
 				batches.POST("/update", s.UpdateBatch)
 			}

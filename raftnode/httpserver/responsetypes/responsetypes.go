@@ -28,3 +28,18 @@ type ListTagsResponse struct {
 type CreateBatchResponse struct {
 	BatchUID string `json:"batchUID"`
 }
+
+type ListBatchesEntry struct {
+	BatchUID     string   `json:"batchUID"`
+	CreationTime string   `json:"creationTime"`
+	BatchName    string   `json:"batchName"`
+	PrimaryTag   string   `json:"primaryTag"`
+	SecondaryTag string   `json:"secondaryTag"`
+	Conditions   []string `json:"conditions"`
+	VideoMD5s    []string `json:"videoMD5s"`
+	Note         string   `json:"note"`
+}
+
+type ListBatchesResponse struct {
+	Batches []ListBatchesEntry `json:"batches"`
+}
