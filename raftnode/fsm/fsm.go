@@ -668,12 +668,13 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			f.logger.Error("EnJob failed to free worker", "err", err)
 			return err
 		}
-		// TODO: Enroll a retry on crashed status
 		switch jobType {
 		case "dlc":
 			if cmd.Status == "crashed" {
 				break
 			}
+			// Cannot reschedule jobs from within the FSM,
+			// needs external determinism for a new timestamp
 			if cmd.Data == nil {
 				f.logger.Error("EndJob got Nil data from dlc job")
 				return errors.New("EndJob got Nil data from dlc job")
