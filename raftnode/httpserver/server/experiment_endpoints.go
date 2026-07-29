@@ -351,7 +351,7 @@ func (s *HTTPServer) ListBatches(c *gin.Context) {
 	query := `
         SELECT 
 			batch_uid, creation_time, batch_name,
-			primary_tag, secondary_tag, note
+			primary_tag, secondary_tag, norm_md5, note
         FROM batches
         WHERE 1=1
     `
@@ -378,7 +378,7 @@ func (s *HTTPServer) ListBatches(c *gin.Context) {
 	for bRows.Next() {
 		var b rt.ListBatchesEntry
 		if err := bRows.Scan(&b.BatchUID, &b.CreationTime,
-			&b.BatchName, &b.PrimaryTag, &b.SecondaryTag, &b.Note); err != nil {
+			&b.BatchName, &b.PrimaryTag, &b.SecondaryTag, &b.NormMD5, &b.Note); err != nil {
 			s.Logger.Error("SQLite3 Query Failed", "err", err)
 			Fail(c, 503, "FSM_READ_ERR", "error parsing query results")
 			bRows.Close()

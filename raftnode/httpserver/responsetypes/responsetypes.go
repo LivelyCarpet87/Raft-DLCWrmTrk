@@ -35,6 +35,7 @@ type ListBatchesEntry struct {
 	BatchName    string   `json:"batchName"`
 	PrimaryTag   string   `json:"primaryTag"`
 	SecondaryTag string   `json:"secondaryTag"`
+	NormMD5      string   `json:"normMD5"`
 	Conditions   []string `json:"conditions"`
 	VideoMD5s    []string `json:"videoMD5s"`
 	Note         string   `json:"note"`
