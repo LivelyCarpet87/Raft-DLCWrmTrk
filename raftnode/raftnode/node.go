@@ -125,7 +125,7 @@ func (n *Node) ProxyApply(cmdEnv raftcommands.CommandEnvelope) error {
 		}
 
 		resp, httpErr := http.Post(
-			"http://"+leader+"/raft/apply",
+			leader+"/raft/apply",
 			"application/octet-stream",
 			bytes.NewReader(cmdEnvData),
 		)

@@ -253,7 +253,7 @@ func (vn *VNode) CollectPendingFiles(ctx context.Context) {
 		}
 		rotx.Rollback()
 
-		getFileUrl := "http://" + targetHttpAddr + "/api/filer/" + fileMD5
+		getFileUrl := targetHttpAddr + "/api/filer/" + fileMD5
 
 		resp, err := http.Get(getFileUrl)
 		if err != nil {

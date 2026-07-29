@@ -11,11 +11,12 @@ import (
 )
 
 type ConfigYaml struct {
-	BasePath      string `yaml:"base_path"`
-	NodeID        string `yaml:"node_id"`
-	FailureDomain string `yaml:"failure_domain"`
-	RaftBindAddr  string `yaml:"raft_bind_addr"`
-	HttpBindAddr  string `yaml:"http_bind_addr"`
+	BasePath       string `yaml:"base_path"`
+	NodeID         string `yaml:"node_id"`
+	FailureDomain  string `yaml:"failure_domain"`
+	RaftBindAddr   string `yaml:"raft_bind_addr"`
+	HttpBindAddr   string `yaml:"http_bind_addr"`
+	HttpPublicAddr string `yaml:"http_public_url"`
 
 	Storage struct {
 		NumVNodes  int    `yaml:"num_vnodes"`
@@ -24,11 +25,12 @@ type ConfigYaml struct {
 }
 
 type Config struct {
-	BasePath      string
-	NodeID        string
-	FailureDomain string
-	RaftBindAddr  string
-	HttpBindAddr  string
+	BasePath       string
+	NodeID         string
+	FailureDomain  string
+	RaftBindAddr   string
+	HttpBindAddr   string
+	HttpPublicAddr string
 
 	Storage struct {
 		NumVNodes  int
@@ -105,11 +107,12 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, storageSizeErr
 	}
 	cfg := Config{
-		BasePath:      cfgYml.BasePath,
-		NodeID:        cfgYml.NodeID,
-		FailureDomain: cfgYml.FailureDomain,
-		RaftBindAddr:  cfgYml.RaftBindAddr,
-		HttpBindAddr:  cfgYml.HttpBindAddr,
+		BasePath:       cfgYml.BasePath,
+		NodeID:         cfgYml.NodeID,
+		FailureDomain:  cfgYml.FailureDomain,
+		RaftBindAddr:   cfgYml.RaftBindAddr,
+		HttpBindAddr:   cfgYml.HttpBindAddr,
+		HttpPublicAddr: cfgYml.HttpPublicAddr,
 		Storage: struct {
 			NumVNodes  int
 			MaxStorage int64

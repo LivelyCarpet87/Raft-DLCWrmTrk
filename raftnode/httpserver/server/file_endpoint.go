@@ -2,6 +2,7 @@ package server
 
 import (
 	"database/sql"
+	"errors"
 
 	"github.com/gin-gonic/gin"
 )
@@ -63,7 +64,8 @@ func (s *HTTPServer) serveFile(c *gin.Context) {
 		LIMIT 1`,
 		fileMD5,
 	).Scan(&redirectHttpAddr); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
+			s.Logger.Error("No matches when searching for file", "fileMD5", fileMD5)
 			Fail(c, 404, "FILE_NOT_FOUND", "Could not find the file requested")
 			return
 		}
@@ -71,7 +73,7 @@ func (s *HTTPServer) serveFile(c *gin.Context) {
 		Fail(c, 503, "FSM_READ_ERR", "failed to search for the file")
 		return
 	}
-	c.Redirect(308, redirectHttpAddr+"/api/file/"+fileMD5)
+	c.Redirect(308, redirectHttpAddr+"/api/filer/"+fileMD5)
 	return
 
 }

@@ -172,7 +172,7 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		cfg.NodeID,
 		cfg.RaftBindAddr,
 		cfg.FailureDomain,
-		cfg.HttpBindAddr,
+		cfg.HttpPublicAddr,
 		rootLogger, bootstrap)
 	if err != nil {
 		log.Error("Failed to create RAFT node", "err", err)
@@ -189,7 +189,7 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		form.Add("httpAddr", cfg.HttpBindAddr)
 
 		resp, err := http.PostForm(
-			"http://"+leader+"/raft/join",
+			leader+"/raft/join",
 			form,
 		)
 		if err != nil {
