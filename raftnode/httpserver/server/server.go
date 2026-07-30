@@ -88,6 +88,7 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 			norms := experiment.Group("/norms")
 			{
 				norms.GET("/get", s.GetNorm)
+				norms.POST("/set", s.SetNormManual)
 			}
 		}
 		/*

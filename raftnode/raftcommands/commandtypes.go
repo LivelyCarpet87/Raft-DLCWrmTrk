@@ -87,3 +87,8 @@ type EndJobCommand struct {
 	Status         string `json:"Status"`
 	Data           []byte `json:"data"`
 }
+
+type SetNormManualCommand struct {
+	NormMD5         string  `json:"normMD5"`
+	NormValueManual float64 `json:"normValueManual"`
+}

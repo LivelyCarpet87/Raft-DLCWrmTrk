@@ -856,3 +856,63 @@ func (s *HTTPServer) GetNorm(c *gin.Context) {
 	OK(c, 200, normInfo)
 	return
 }
+
+func (s *HTTPServer) SetNormManual(c *gin.Context) {
+	normMD5 := c.PostForm("normMD5")
+	normValueManualS := c.PostForm("normValueManual")
+	if len(normMD5) != 32 {
+		Fail(c, 400, "BAD_INPUT", "normMD5 is invalid")
+		return
+	}
+
+	normValueManual, err := strconv.ParseFloat(normValueManualS, 64)
+	if err != nil {
+		Fail(c, 400, "BAD_INPUT", "normValueManual is invalid")
+		return
+	} else if normValueManual <= 0 && normValueManual != -1 {
+		Fail(c, 400, "BAD_INPUT", "normValueManual is invalid")
+		return
+	}
+
+	readOnlyTx, err := s.RaftNode.GetReadOnlyTx(c.Request.Context())
+	defer readOnlyTx.Rollback()
+	if err != nil {
+		s.Logger.Warn("Failed to get read-only tx", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "failed to get read-only tx")
+		return
+	}
+
+	var currentVal sql.NullFloat64
+	if err := readOnlyTx.QueryRow(
+		`SELECT 
+			norm_value_manual
+		FROM norms
+		WHERE norm_md5 = ?`,
+		normMD5,
+	).Scan(&currentVal); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			Fail(c, 400, "NORM_NOT_FOUND", "failed to find matching normalizer")
+			return
+		}
+		s.Logger.Warn("Unexpected SQL error", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "unexpected sql error")
+		return
+	}
+
+	setNormManualCommand := raftcommands.SetNormManualCommand{
+		NormMD5:         normMD5,
+		NormValueManual: normValueManual,
+	}
+	cmdData, _ := json.Marshal(setNormManualCommand)
+	cmdEnv := raftcommands.CommandEnvelope{
+		Command: "SetNormManual",
+		Data:    cmdData,
+	}
+	if err := s.RaftNode.ProxyApply(cmdEnv); err != nil {
+		Fail(c, 503, "RAFT_ERR", "failed to apply command")
+		return
+	}
+
+	OK(c, 200, nil)
+	return
+}

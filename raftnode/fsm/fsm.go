@@ -477,7 +477,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		}
 
 		if _, err := tx.Exec(`
-			INSERT INTO norms(norm_md5, creation_time)
+			INSERT OR IGNORE INTO norms(norm_md5, creation_time)
 			VALUES(?,?)
 			`, cmd.NormMD5, cmd.CreationTime); err != nil {
 			f.logger.Error("AddBatch failed to record nrom", "err", err, "norm", cmd.NormMD5)
@@ -782,6 +782,38 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 
 		default:
 			f.logger.Error("EndJob failed to recognize job type", "jobType", jobType)
+		}
+
+	case "SetNormManual":
+		var cmd raftcommands.SetNormManualCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		if cmd.NormValueManual > 0 {
+			if _, err := tx.Exec(`
+				UPDATE norms
+				SET norm_value_manual = ?
+				WHERE norm_md5 = ?
+				`, cmd.NormValueManual, cmd.NormMD5); err != nil {
+				f.logger.Error(
+					"SetNormManual failed to record new manual value",
+					"err", err,
+					"NormMD5", cmd.NormMD5,
+					"NormValueManual", cmd.NormValueManual,
+				)
+				return err
+			}
+		} else {
+			if _, err := tx.Exec(`
+				UPDATE norms
+				SET norm_value_manual = NULL
+				WHERE norm_md5 = ?
+				`, cmd.NormMD5); err != nil {
+				f.logger.Error(
+					"SetNormManual failed to clear manual value",
+					"err", err,
+					"NormMD5", cmd.NormMD5,
+				)
+				return err
+			}
 		}
 
 	default:
