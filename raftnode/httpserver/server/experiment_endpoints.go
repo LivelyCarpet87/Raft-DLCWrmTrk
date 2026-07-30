@@ -423,7 +423,7 @@ func (s *HTTPServer) GetBatch(c *gin.Context) {
 	)
 
 	var batch rt.GetBatcheResponse
-	if r.Scan(&batch.CreationTime, &batch.BatchName, &batch.PrimaryTag,
+	if err = r.Scan(&batch.CreationTime, &batch.BatchName, &batch.PrimaryTag,
 		&batch.SecondaryTag, &batch.NormMD5, &batch.Note); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			Fail(c, 404, "BATCH_NOT_FOUND", "Batch with uid not found")
