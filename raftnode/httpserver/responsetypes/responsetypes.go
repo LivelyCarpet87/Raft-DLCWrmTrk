@@ -66,4 +66,12 @@ type GetVideoResponse struct {
 	JobPosition      int            `json:"jobPosition"`
 	Tracklets        []TrackletInfo `json:"tracklets"`
 }
+
+type GetNormResponse struct {
+	ProcessingStatus string  `json:"processingStatus"`
+	CreationTime     string  `json:"creationTime"`
+	JobPosition      int     `json:"jobPosition"`
+	LabeledNormMD5   string  `json:"labeledNormMD5"`
+	NormValueAuto    float64 `json:"normValueAuto"`
+	NormValueManual  float64 `json:"normValueManual"`
 }

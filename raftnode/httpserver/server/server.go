@@ -85,6 +85,10 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 				videos.GET("/get", s.GetSrcVideo)
 			}
 
+			norms := experiment.Group("/norms")
+			{
+				norms.GET("/get", s.GetNorm)
+			}
 		}
 		/*
 			metrics := api.Group("/metrics")

@@ -750,3 +750,109 @@ func (s *HTTPServer) GetSrcVideo(c *gin.Context) {
 	OK(c, 200, video)
 	return
 }
+
+func (s *HTTPServer) GetNorm(c *gin.Context) {
+	normMD5 := c.Query("normMD5")
+	if len(normMD5) != 32 {
+		Fail(c, 400, "BAD_INPUT", "normMD5 is invalid")
+		return
+	}
+	readOnlyTx, err := s.RaftNode.GetReadOnlyTx(c.Request.Context())
+	defer readOnlyTx.Rollback()
+	if err != nil {
+		s.Logger.Warn("Failed to get read-only tx", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "failed to get read-only tx")
+		return
+	}
+	var normInfo rt.GetNormResponse
+
+	var normValueAuto sql.NullFloat64
+	var normValueManual sql.NullFloat64
+	var labeledNormMD5 sql.NullString
+	if err := readOnlyTx.QueryRow(
+		`SELECT 
+			norm_value_auto, norm_value_manual, 
+			creation_time, labeled_norm_md5
+		FROM norms
+		WHERE norm_md5 = ?`,
+		normMD5,
+	).Scan(&normValueAuto, &normValueManual, &normInfo.CreationTime, &labeledNormMD5); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			Fail(c, 400, "NORM_NOT_FOUND", "failed to find matching normalizer")
+			return
+		}
+		s.Logger.Warn("Unexpected SQL error", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "unexpected sql error")
+		return
+	}
+
+	if normValueAuto.Valid {
+		normInfo.NormValueAuto = normValueAuto.Float64
+	} else {
+		normInfo.NormValueAuto = -1
+	}
+	if normValueManual.Valid {
+		normInfo.NormValueManual = normValueManual.Float64
+	} else {
+		normInfo.NormValueManual = -1
+	}
+	if labeledNormMD5.Valid {
+		normInfo.LabeledNormMD5 = labeledNormMD5.String
+	} else {
+		normInfo.LabeledNormMD5 = ""
+	}
+
+	sRow := readOnlyTx.QueryRow(
+		`SELECT 
+			status
+		FROM jobs
+		WHERE 
+			job_id = ? AND job_type = 'norm'
+		ORDER BY
+			CASE status
+				WHEN 'done' THEN 0
+				WHEN 'assigned' THEN 1
+				WHEN 'pending' THEN 2
+				ELSE 3
+			END,
+			attempt_counter DESC;
+		`,
+		normMD5,
+	)
+	if err := sRow.Scan(
+		&normInfo.ProcessingStatus,
+	); err != nil {
+		s.Logger.Warn("Unexpected SQL error", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "unexpected SQL error")
+		return
+	}
+
+	if normInfo.ProcessingStatus == "pending" {
+		pRow := readOnlyTx.QueryRow(
+			`SELECT position
+			FROM (
+				SELECT
+					job_id,
+					ROW_NUMBER() OVER (
+						ORDER BY enrollment_time
+					) AS position
+				FROM jobs
+				WHERE status IN ('pending', 'assigned')
+			)
+			WHERE job_id = ?;`,
+			normMD5,
+		)
+		if err := pRow.Scan(
+			&normInfo.JobPosition,
+		); err != nil {
+			s.Logger.Warn("Unexpected SQL error", "err", err)
+			Fail(c, 503, "FSM_READ_ERR", "unexpected SQL error")
+			return
+		}
+	} else {
+		normInfo.JobPosition = -1
+	}
+
+	OK(c, 200, normInfo)
+	return
+}
