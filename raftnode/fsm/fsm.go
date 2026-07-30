@@ -81,7 +81,9 @@ func InitSchema(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS norms (
 		norm_md5 TEXT PRIMARY KEY,
 		creation_time TEXT NOT NULL,
-		norm_labeled_md5 TEXT
+		labeled_norm_md5 TEXT,
+		norm_value_auto REAL,
+		norm_value_manual REAL
 	);
 
 	CREATE TABLE IF NOT EXISTS src_videos (
@@ -471,6 +473,14 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		if err := SpreadFile(cmd.VNodeID, cmd.NormMD5, "image/png", cmd.NormFileSize,
 			cmd.CreationTime, tx, f.logger); err != nil {
 			f.logger.Error("AddBatch failed replicate files", "err", err)
+			return err
+		}
+
+		if _, err := tx.Exec(`
+			INSERT INTO norms(norm_md5, creation_time)
+			VALUES(?,?)
+			`, cmd.NormMD5, cmd.CreationTime); err != nil {
+			f.logger.Error("AddBatch failed to record nrom", "err", err, "norm", cmd.NormMD5)
 			return err
 		}
 
