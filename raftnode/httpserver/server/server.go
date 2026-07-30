@@ -91,12 +91,15 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 				norms.POST("/set", s.SetNormManual)
 			}
 		}
-		/*
-			metrics := api.Group("/metrics")
+
+		metrics := api.Group("/metrics")
+		{
+			workers := metrics.Group("/workers")
 			{
-				metrics.GET("/health", listUsers)
-				metrics.GET("/status", getUser)
+				workers.GET("/status", s.GetWorkersStatus)
 			}
+		}
+		/*
 			auth := api.Group("/auth")
 			{
 				auth.GET("/login", listUsers)

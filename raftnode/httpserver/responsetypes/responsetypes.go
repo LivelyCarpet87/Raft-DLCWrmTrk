@@ -75,3 +75,9 @@ type GetNormResponse struct {
 	NormValueAuto    float64 `json:"normValueAuto"`
 	NormValueManual  float64 `json:"normValueManual"`
 }
+
+type GetWorkersStatusResponse struct {
+	MeanJobTime int `json:"meanJobTime"` // Mean time of jobs in seconds
+	NumWorkers  int `json:"numWorkers"`  // Number of workers free/assigned
+	QueueLength int `json:"queueLength"`
+}
