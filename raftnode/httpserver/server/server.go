@@ -82,7 +82,7 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 			videos := experiment.Group("/videos")
 			{
 				videos.POST("/upload", s.AddSrcVideo)
-				//videos.GET("/status", a)
+				videos.GET("/get", s.GetSrcVideo)
 			}
 
 		}

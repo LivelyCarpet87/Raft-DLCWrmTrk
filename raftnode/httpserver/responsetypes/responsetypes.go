@@ -43,4 +43,27 @@ type GetBatcheResponse struct {
 type ListBatchesResponse struct {
 	BatchUIDs []string `json:"batchUIDs"`
 }
+
+type TrackletInfo struct {
+	TrackID    string  `json:"trackID"`
+	MinSpeed   float64 `json:"minSpeed"`
+	MaxSpeed   float64 `json:"maxSpeed"`
+	MedSpeed   float64 `json:"medSpeed"`
+	MeanSpeed  float64 `json:"meanSpeed"`
+	TrackLen   float64 `json:"trackLen"`
+	WormLen    float64 `json:"wormLen"`
+	Confidence float64 `json:"confidence"`
+	WarnTxt    string  `json:"warnTxt"`
+}
+
+type GetVideoResponse struct {
+	VideoName        string         `json:"videoName"`
+	NumIndv          int            `json:"numIndv"`
+	UploadTime       string         `json:"uploadTime"`
+	SystemMessage    string         `json:"systemMessage"`
+	LabeledVideoMD5  string         `json:"labeledVideoMD5"`
+	ProcessingStatus string         `json:"processingStatus"`
+	JobPosition      int            `json:"jobPosition"`
+	Tracklets        []TrackletInfo `json:"tracklets"`
+}
 }

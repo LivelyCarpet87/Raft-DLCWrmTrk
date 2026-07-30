@@ -604,3 +604,149 @@ func (s *HTTPServer) AddSrcVideo(c *gin.Context) {
 	return
 
 }
+
+func (s *HTTPServer) GetSrcVideo(c *gin.Context) {
+	srcVideoMD5 := c.Query("srcVideoMD5")
+	batchUID := c.Query("batchUID")
+
+	if len(srcVideoMD5) != 32 {
+		Fail(c, 400, "BAD_INPUT", "srcVideoMD5 is invalid")
+		return
+	}
+	if batchUID == "" || uuid.Validate(batchUID) != nil {
+		Fail(c, 400, "BAD_INPUT", "batchUID is invalid")
+		return
+	}
+	readOnlyTx, err := s.RaftNode.GetReadOnlyTx(c.Request.Context())
+	defer readOnlyTx.Rollback()
+	if err != nil {
+		s.Logger.Warn("Failed to get read-only tx", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "failed to get read-only tx")
+		return
+	}
+
+	var video rt.GetVideoResponse
+	vRow := readOnlyTx.QueryRow(
+		`SELECT 
+			video_name, num_indv, upload_time, system_message
+		FROM src_videos
+		WHERE 
+			src_video_md5 = ? AND batch_uid = ?`,
+		srcVideoMD5, batchUID,
+	)
+	var nSystemMessage sql.NullString
+	if err := vRow.Scan(
+		&video.VideoName, &video.NumIndv,
+		&video.UploadTime, &nSystemMessage,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			Fail(c, 400, "VIDEO_NOT_FOUND", "failed to find matching video")
+			return
+		}
+		s.Logger.Warn("Unexpected SQL error", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "unexpected SQL error")
+		return
+	}
+	if nSystemMessage.Valid {
+		video.SystemMessage = nSystemMessage.String
+	} else {
+		video.SystemMessage = ""
+	}
+
+	sRow := readOnlyTx.QueryRow(
+		`SELECT 
+			status
+		FROM jobs
+		WHERE 
+			job_id = ? AND job_type = 'dlc'
+		ORDER BY
+			CASE status
+				WHEN 'done' THEN 0
+				WHEN 'assigned' THEN 1
+				WHEN 'pending' THEN 2
+				ELSE 3
+			END,
+			attempt_counter DESC;
+		`,
+		srcVideoMD5,
+	)
+	if err := sRow.Scan(
+		&video.ProcessingStatus,
+	); err != nil {
+		s.Logger.Warn("Unexpected SQL error", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "unexpected SQL error")
+		return
+	}
+
+	if video.ProcessingStatus == "pending" {
+		pRow := readOnlyTx.QueryRow(
+			`SELECT position
+			FROM (
+				SELECT
+					job_id,
+					ROW_NUMBER() OVER (
+						ORDER BY enrollment_time
+					) AS position
+				FROM jobs
+				WHERE status IN ('pending', 'assigned')
+			)
+			WHERE job_id = ?;`,
+			srcVideoMD5,
+		)
+		if err := pRow.Scan(
+			&video.JobPosition,
+		); err != nil {
+			s.Logger.Warn("Unexpected SQL error", "err", err)
+			Fail(c, 503, "FSM_READ_ERR", "unexpected SQL error")
+			return
+		}
+	} else {
+		video.JobPosition = -1
+	}
+
+	if video.ProcessingStatus == "done" {
+		pvRow := readOnlyTx.QueryRow(
+			`SELECT labeled_video_md5
+			FROM labeled_videos
+			WHERE src_video_md5 = ?;`,
+			srcVideoMD5,
+		)
+		if err := pvRow.Scan(
+			&video.LabeledVideoMD5,
+		); err != nil {
+			s.Logger.Warn("Unexpected SQL error", "err", err)
+			Fail(c, 503, "FSM_READ_ERR", "unexpected SQL error")
+			return
+		}
+
+		var tracklets []rt.TrackletInfo
+		trRows, err := readOnlyTx.Query(
+			`SELECT 
+				track_id, min_speed, max_speed, median_speed,
+				mean_speed, track_len, worm_len, confidence, warn_txt
+			FROM tracklets
+			WHERE src_video_md5 = ?;`,
+			srcVideoMD5,
+		)
+		if err != nil {
+			s.Logger.Warn("Unexpected SQL error", "err", err)
+			Fail(c, 503, "FSM_READ_ERR", "unexpected SQL error")
+			return
+		}
+		for trRows.Next() {
+			var t rt.TrackletInfo
+			err = trRows.Scan(&t.TrackID, &t.MinSpeed, &t.MaxSpeed, &t.MedSpeed,
+				&t.MeanSpeed, &t.TrackLen, &t.WormLen, &t.Confidence, &t.WarnTxt)
+			if err != nil {
+				s.Logger.Warn("Unexpected SQL error", "err", err)
+				Fail(c, 503, "FSM_READ_ERR", "unexpected SQL error")
+				return
+			}
+			tracklets = append(tracklets, t)
+		}
+		video.Tracklets = tracklets
+	}
+
+	OK(c, 200, video)
+	return
+}
