@@ -15,6 +15,10 @@ type LeaderHttpAddrResponse struct {
 	Leader string `json:"leader"`
 }
 
+type GetHttpEndpointsResponse struct {
+	Endpoints []string `json:"endpoints"`
+}
+
 type TagInfo struct {
 	TagName string `json:"tagName"`
 	TagType string `json:"tagType"`

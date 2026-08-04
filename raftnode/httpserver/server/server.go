@@ -50,7 +50,7 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 		raftApi.POST("/join", s.JoinCluster)
 		raftApi.POST("/apply", s.ApplyCommand)
 		raftApi.GET("/leader", s.WhoisLeader)
-		// raftApi.POST("/list", s.ApplyCommand)
+		raftApi.GET("/endpoints", s.GetEndpoints)
 	}
 
 	api := router.Group("/api")

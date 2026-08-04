@@ -68,6 +68,38 @@ func (s *HTTPServer) WhoisLeader(c *gin.Context) {
 	return
 }
 
+func (s *HTTPServer) GetEndpoints(c *gin.Context) {
+	readOnlyTx, err := s.RaftNode.GetReadOnlyTx(c.Request.Context())
+	defer readOnlyTx.Rollback()
+	if err != nil {
+		s.Logger.Warn("Failed to get read-only tx", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "failed to get read-only tx")
+		return
+	}
+	hRows, err := readOnlyTx.Query("SELECT http_addr FROM nodes WHERE status = 'up'")
+	if err != nil {
+		s.Logger.Error("SQLite3 Query Failed", "err", err)
+		Fail(c, 503, "FSM_READ_ERR", "query to list batches failed")
+		return
+	}
+	var ret rt.GetHttpEndpointsResponse
+	for hRows.Next() {
+		var httpAddr string
+		if err := hRows.Scan(&httpAddr); err != nil {
+			s.Logger.Error("SQLite3 Query Failed", "err", err)
+			Fail(c, 503, "FSM_READ_ERR", "error parsing query results")
+			hRows.Close()
+			readOnlyTx.Rollback()
+			return
+		}
+		ret.Endpoints = append(ret.Endpoints, httpAddr)
+	}
+	hRows.Close()
+	readOnlyTx.Rollback()
+	OK(c, 200, ret)
+	return
+}
+
 func (s *HTTPServer) JoinCluster(c *gin.Context) {
 	if s.RedirectIfNotLeader(c) {
 		return

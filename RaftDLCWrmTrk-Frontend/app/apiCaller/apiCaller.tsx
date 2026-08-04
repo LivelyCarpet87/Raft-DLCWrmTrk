@@ -1,14 +1,11 @@
-const DISCOVERY_URL = "/raft/endpoints";
+import type { GetEndpointsResponse } from "~/types/apiResponses";
 
-const DEFAULT_ENDPOINTS = [
-  "http://10.0.9.8:8000",
-  "http://10.0.9.8:8001",
-];
+const DISCOVERY_URL = "http://10.0.9.8:8000/raft/endpoints";
 
 const UNHEALTHY_FOR = 30_000;
 
 const state = {
-  endpoints: DEFAULT_ENDPOINTS,
+  endpoints: new Array<string>(),
   unhealthyUntil: new Map<string, number>(),
 
   index: 0,
@@ -31,8 +28,6 @@ async function refreshEndpoints() {
   if (state.refreshPromise) return state.refreshPromise;
 
   state.refreshPromise = (async () => {
-    // Change me
-    return
 
     try {
       const headers = new Headers();
@@ -41,6 +36,10 @@ async function refreshEndpoints() {
         headers.set("If-None-Match", state.etag);
       }
 
+      let getEndpointUrl = DISCOVERY_URL
+      if (state.endpoints.length > 0) {
+        getEndpointUrl = generateURL("/raft/endpoints")
+      }
       const res = await fetch(DISCOVERY_URL, { headers });
 
       if (res.status === 304) {
@@ -60,7 +59,13 @@ async function refreshEndpoints() {
 
       state.refreshAfter = Date.now() + maxAge;
 
-      const endpoints = (await res.json()) as string[];
+      const resp = await parseResponse<GetEndpointsResponse>(res)
+
+      if (resp === undefined) {
+        return
+      }
+
+      const endpoints = resp!.endpoints
 
       if (endpoints.length) {
         state.endpoints = endpoints;

@@ -1,3 +1,7 @@
+export type GetEndpointsResponse = {
+  endpoints: string[],
+};
+
 export type TagInfo = {
   tagName: string;
   tagType: string;
