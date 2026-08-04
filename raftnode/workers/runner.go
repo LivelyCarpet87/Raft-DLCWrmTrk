@@ -139,6 +139,13 @@ func (r *Runner) resetDB() {
 		return
 	}
 
+	_, err = tx.Exec(`DELETE FROM worker_state;`)
+	if err != nil {
+		r.logger.Error("resetDB DELETE worker_state failed", "err", err)
+		tx.Rollback()
+		return
+	}
+
 	err = r.rm.ResetIpcDb(tx)
 	if err != nil {
 		r.logger.Error("resetDB Runner Module failed", "err", err)
