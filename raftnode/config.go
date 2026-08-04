@@ -22,6 +22,15 @@ type ConfigYaml struct {
 		NumVNodes  int    `yaml:"num_vnodes"`
 		MaxStorage string `yaml:"max_storage"`
 	} `yaml:"storage"`
+
+	DlcWorker struct {
+		PythonBin     string  `yaml:"python_bin"`
+		WorkerScript  string  `yaml:"worker_script"`
+		StepTime      float64 `yaml:"step_time"`
+		DlcConfigPath string  `yaml:"dlc_cfg_path"`
+		DlcShuffle    int     `yaml:"dlc_shuffle"`
+		NumWorkers    int     `yaml:"num_workers"`
+	} `yaml:"dlc_worker"`
 }
 
 type Config struct {
@@ -35,6 +44,14 @@ type Config struct {
 	Storage struct {
 		NumVNodes  int
 		MaxStorage int64
+	}
+	DlcWorker struct {
+		PythonBin     string
+		WorkerScript  string
+		StepTime      float64
+		DlcConfigPath string
+		DlcShuffle    int
+		NumWorkers    int
 	}
 }
 
@@ -80,12 +97,19 @@ storage:
   # Make sure not to exceed total available space.
   max_storage: 20GiB
 
-python:
+dlc_worker:
   # Full path to python binary
   # Remember this changes when using conda environments
-  python_bin_path: /path/to/conda/bin/python3
-  python_video_worker: /path/to/video_worker.py
-  python_norm_worker: /path/to/norm_worker.py
+  python_bin: /path/to/bin/python3
+  worker_script: /path/to/video_worker.py
+  step_time: 0.1
+  dlc_cfg_path: /path/to/dlc/project/config.yaml
+  dlc_shuffle: 0
+  num_workers: 1
+
+
+norm:
+  norm_worker: /path/to/norm_worker.py
 `
 
 func LoadConfig(path string) (*Config, error) {
@@ -119,6 +143,21 @@ func LoadConfig(path string) (*Config, error) {
 		}{
 			NumVNodes:  cfgYml.Storage.NumVNodes,
 			MaxStorage: maxStorage,
+		},
+		DlcWorker: struct {
+			PythonBin     string
+			WorkerScript  string
+			StepTime      float64
+			DlcConfigPath string
+			DlcShuffle    int
+			NumWorkers    int
+		}{
+			PythonBin:     cfgYml.DlcWorker.PythonBin,
+			WorkerScript:  cfgYml.DlcWorker.WorkerScript,
+			StepTime:      cfgYml.DlcWorker.StepTime,
+			DlcConfigPath: cfgYml.DlcWorker.DlcConfigPath,
+			DlcShuffle:    cfgYml.DlcWorker.DlcShuffle,
+			NumWorkers:    cfgYml.DlcWorker.NumWorkers,
 		},
 	}
 

@@ -154,23 +154,25 @@ func main() {
 	}
 	vnm.Run(ctx)
 
-	dlcWorkerLogger := rootLogger.Named("dlcWorker")
-	workerUID := uuid.NewString()
-	workerCfg := workers.WorkerConfig{
-		WorkerUID:  workerUID,
-		WorkerType: "dlc",
-		WorkDir:    filepath.Join(workerDir, workerUID),
-	}
 	dlcCfg := workers.DlcRunnerModuleConfig{
-		PythonBinPath:    "/home/livelycarpet87/miniforge3/envs/DEEPLABCUT/bin/python3",
-		PythonWorkerPath: "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/workers/dlc_worker.py",
-		StepTime:         0.1,
-		DlcCfgPath:       "/home/livelycarpet87/Documents/GitHub/Raft-DLCWrmTrk/raftnode/testing/DLC-WrmTrk-Tyllis Xu-2025-10-25/config.yaml",
-		DlcShuffle:       5,
+		PythonBinPath:    cfg.DlcWorker.PythonBin,
+		PythonWorkerPath: cfg.DlcWorker.WorkerScript,
+		StepTime:         cfg.DlcWorker.StepTime,
+		DlcCfgPath:       cfg.DlcWorker.DlcConfigPath,
+		DlcShuffle:       cfg.DlcWorker.DlcShuffle,
 	}
-	dlcRunnerModule, _ := workers.NewDlcRunnerModule(dlcCfg, vnm, dlcWorkerLogger)
-	dlcRunner, _ := workers.NewRunner(workerCfg, dlcRunnerModule, node, dlcWorkerLogger)
-	go dlcRunner.Run(ctx)
+	dlcWorkerLogger := rootLogger.Named("dlcWorker")
+	for _ = range cfg.DlcWorker.NumWorkers {
+		workerUID := uuid.NewString()
+		workerCfg := workers.WorkerConfig{
+			WorkerUID:  workerUID,
+			WorkerType: "dlc",
+			WorkDir:    filepath.Join(workerDir, workerUID),
+		}
+		dlcRunnerModule, _ := workers.NewDlcRunnerModule(dlcCfg, vnm, dlcWorkerLogger)
+		dlcRunner, _ := workers.NewRunner(workerCfg, dlcRunnerModule, node, dlcWorkerLogger)
+		go dlcRunner.Run(ctx)
+	}
 
 	go node.ClusterMaintenance()
 
