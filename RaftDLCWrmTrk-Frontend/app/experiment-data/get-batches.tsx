@@ -56,7 +56,8 @@ type renderedTrackletInfo = {
 function VideoBox({batchUID, videoMD5, conversion}:{batchUID: string,videoMD5:string, conversion:number}) {
     const { data:getVideoResp } = useSWR<GetVideoResponse>(
         `/api/experiment/videos/get?batchUID=${encodeURIComponent(batchUID)}&srcVideoMD5=${encodeURIComponent(videoMD5)}`,
-        fetcher
+        fetcher,
+        {refreshInterval: 30_000}
     );
     const [collapse, setCollapse] = useState(false)
     const [renderedInfo, setRenderedInfo] = useState<renderedTrackletInfo[]>([])
@@ -72,7 +73,7 @@ function VideoBox({batchUID, videoMD5, conversion}:{batchUID: string,videoMD5:st
             .map(
                 (tracklet:TrackletInfo) => ({
                 trackID:tracklet.trackID,
-                convMeanSpeed: (conversion > 0 ? tracklet.meanSpeed * conversion : tracklet.meanSpeed).toPrecision(3),
+                convMeanSpeed: (conversion > 0 ? tracklet.meanSpeed / conversion : tracklet.meanSpeed).toPrecision(3),
                 confidence: (tracklet.confidence*100).toPrecision(3),
                 warnTxt: tracklet.warnTxt,
             }));
@@ -228,7 +229,8 @@ function VideoBox({batchUID, videoMD5, conversion}:{batchUID: string,videoMD5:st
 function BatchBox({batchUID}:{batchUID: string}) {
     const { data:getBatchResp } = useSWR<GetBatcheResponse>(
         `/api/experiment/batches/get?batchUID=${encodeURIComponent(batchUID)}`,
-        fetcher
+        fetcher,
+        {refreshInterval: 30_000}
     );
     const { data:condTags } = useSWR<ListTagsResponse>(
         "/api/experiment/tags/list?tagType=condition",
@@ -238,7 +240,8 @@ function BatchBox({batchUID}:{batchUID: string}) {
 
     const { data:normInfo } = useSWR<GetNormResponse>(
         getBatchResp ? `/api/experiment/norms/get?normMD5=${getBatchResp.normMD5}` : null,
-        fetcher
+        fetcher,
+        {refreshInterval: 30_000}
     );
 
     const [collapse, setCollapse] = useState(false);
@@ -378,7 +381,7 @@ function BatchBox({batchUID}:{batchUID: string}) {
                         }
                                 >
                     </NumberInput>
-                    <p className="text-lg">mm/px</p>
+                    <p className="text-lg">px/mm</p>
                 </div>
                 <Button 
                 rightSection={
@@ -455,7 +458,8 @@ export default function GetBatches() {
     const [secTag, setSecTag] = useState<string|null>(null);
     const { data:lsBatchResp } = useSWR<ListBatchesResponse>(
         (primTag != null && secTag != null) ? `/api/experiment/batches/list?primaryTag=${encodeURIComponent(primTag)}&secondaryTag=${encodeURIComponent(secTag)}` : null,
-        fetcher
+        fetcher,
+        {refreshInterval: 30_000}
     );
 
     const batchBoxes = (lsBatchResp?.batchUIDs??[]).map((batchUID) => (
