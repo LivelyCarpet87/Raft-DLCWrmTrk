@@ -680,9 +680,6 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		}
 		switch jobType {
 		case "dlc":
-			if cmd.Status == "crashed" {
-				break
-			}
 			// Cannot reschedule jobs from within the FSM,
 			// needs external determinism for a new timestamp
 			if cmd.Data == nil {
@@ -699,6 +696,16 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			err = json.Unmarshal(jobContext, &dlcJobContext)
 			if err != nil {
 				f.logger.Error("EndJob was unable to unmarshal context data from dlc job", "err", err)
+				break
+			}
+			if cmd.Status == "crashed" {
+				_, err = tx.Exec(`
+					UPDATE src_videos 
+					SET system_message = ? 
+					WHERE src_video_md5 = ?`,
+					dlcJobResults.Message,
+					dlcJobContext.VideoFileMD5,
+				)
 				break
 			}
 
@@ -745,7 +752,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 					0,                // Track Len Placeholder
 					0,                // Worm Len Placeholder
 					entry.Confidence, // Placeholder Confidence Value
-					"",               // Warn Text Placeholder
+					entry.WarnTxt,
 				)
 				if err != nil {
 					f.logger.Error("EndJob unable to save tracklet for dlc job", "err", err)

@@ -4,6 +4,7 @@ type DlcJobResRow struct {
 	Indv       string  `json:"indv"`
 	MeanSpeed  float64 `json:"meanSpeed"`
 	Confidence float64 `json:"confidence"`
+	WarnTxt    string  `json:"warnTxt"`
 }
 
 type DlcLabVideoFileInfo struct {

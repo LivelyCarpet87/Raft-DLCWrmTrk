@@ -69,6 +69,7 @@ func (rm *DlcRunnerModule) InitializeIpcDb(tx *sql.Tx) error {
 		indiv TEXT,
 		speed REAL,
 		confidence REAL,
+		warnTxt TEXT,
 		PRIMARY KEY(indiv)
 	);`)
 	if err != nil {
@@ -108,8 +109,27 @@ func (rm *DlcRunnerModule) PopulateWorkContext(workDir string, tx *sql.Tx, jobCo
 }
 
 func (rm *DlcRunnerModule) InterpretResults(workDir string, tx *sql.Tx) ([]byte, error) {
+	var ack int
+	err := tx.QueryRow(`
+	SELECT ack
+	FROM jobs
+	`).Scan(&ack)
+	if err != nil {
+		return nil, err
+	}
+	if ack != 2 {
+		failedRes := jobresults.DlcJobResults{
+			NumIndv:       0,
+			Message:       "CRASHED: no message recovered",
+			Entries:       nil,
+			VideoFileInfo: nil,
+		}
+		data, _ := json.Marshal(failedRes)
+		return data, nil
+	}
+
 	rows, err := tx.Query(`
-	SELECT indiv, speed, confidence
+	SELECT indiv, speed, confidence, warnTxt
 	FROM results
 	`)
 	if err != nil {
@@ -119,7 +139,7 @@ func (rm *DlcRunnerModule) InterpretResults(workDir string, tx *sql.Tx) ([]byte,
 	count := 0
 	for rows.Next() {
 		var r jobresults.DlcJobResRow
-		rows.Scan(&r.Indv, &r.MeanSpeed, &r.Confidence)
+		rows.Scan(&r.Indv, &r.MeanSpeed, &r.Confidence, &r.WarnTxt)
 		Entries = append(Entries, r)
 		count += 1
 	}

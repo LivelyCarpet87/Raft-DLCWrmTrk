@@ -335,16 +335,17 @@ class VideoWorker(BaseWorker):
                 raise ValueError
 
             print("Assigning confidence value.")
-            confidence = True
+            warnTxt="INFO: No warnings."
             confidence_vals = np.array(speed_data[indv])[:,1]
-            if sum_weights/ len(speed_data[indv])< 0.5:
-                confidence=False
+            confidence = sum_weights/ len(speed_data[indv])
+            if confidence < 0.6:
+                warnTxt = "WARNING: low model confidence in tracking."
             if np.count_nonzero(confidence_vals) < (max_frame-min_frame-step_size) * 0.45:
                 continue
             elif np.count_nonzero(confidence_vals) < (max_frame-min_frame-step_size) * 0.7:
-                confidence=False
+                warnTxt='WARNING: was not able to track for more than 30% of video.'
             
-            speed_res.append( (indv,speed,confidence) )
+            speed_res.append( (indv,speed,confidence, warnTxt) )
         
         warning = ""
         if len(speed_res) == 0:
@@ -365,11 +366,11 @@ class VideoWorker(BaseWorker):
         con = self.connect()
         cur = con.cursor()
 
-        for indiv, speed, conf in speed_res:
+        for indiv, speed, conf, warnTxt in speed_res:
             cur.execute("""
-                INSERT OR REPLACE INTO results(indiv, speed, confidence)
-                VALUES (?, ?, ?)
-            """, (indiv, float(speed), int(conf)))
+                INSERT OR REPLACE INTO results(indiv, speed, confidence, warnTxt)
+                VALUES (?, ?, ?, ?)
+            """, (indiv, float(speed), conf, warnTxt))
 
         con.commit()
         con.close()
@@ -425,15 +426,15 @@ class VideoWorker(BaseWorker):
             except Exception as e:
                 print("ERROR:", e)
                 traceback.print_exc()
-                # con = self.connect()
-                # cur = con.cursor()
-                # error_msg = f"ERROR: {e}"
-                # cur.execute("""
-                #     UPDATE job_context
-                #     SET message = ?;
-                # """,[error_msg])
-                # con.commit()
-                # con.close()
+                con = self.connect()
+                cur = con.cursor()
+                error_msg = f"ERROR: {e}"
+                cur.execute("""
+                    UPDATE job_context
+                    SET message = ?;
+                """,[error_msg])
+                con.commit()
+                con.close()
                 self.mark_job_status(job_id, "crashed")
                 time.sleep(2)
 
