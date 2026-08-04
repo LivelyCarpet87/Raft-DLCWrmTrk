@@ -439,7 +439,7 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		var cmd raftcommands.AddVNodeCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)
 		_, err := tx.Exec(`
-			INSERT INTO vnodes(vnode_id, node_id, status, storage_size)
+			INSERT OR REPLACE INTO vnodes(vnode_id, node_id, status, storage_size)
 			VALUES(?,?,'up',?)
 		`, cmd.VNodeID, cmd.NodeID, cmd.SizeLimit)
 		if err != nil {

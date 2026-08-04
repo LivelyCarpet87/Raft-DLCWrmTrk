@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
@@ -49,9 +50,9 @@ func (vnm *VNodeManager) AddVNode(sizeLimit int64) (string, error) {
 		Data:    cmdData,
 	}
 
-	if err := vnm.RaftNode.ProxyApply(cmdEnv); err != nil {
+	for err := vnm.RaftNode.ProxyApply(cmdEnv); err != nil; err = vnm.RaftNode.ProxyApply(cmdEnv) {
 		vnm.Logger.Error("Failed to add vNode", "vNodeID", vNodeID, "err", err)
-		return "", err
+		time.Sleep(1 * time.Second)
 	}
 	vNode, err := NewVNode(vNodeID, filepath.Join(vnm.VNodeDir, vNodeID), vnm.RaftNode, vnm.Logger)
 	if err != nil {

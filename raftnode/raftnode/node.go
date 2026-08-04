@@ -33,6 +33,7 @@ func NewNode(basePath string, id string, raftAddr string, failureDomain string, 
 
 	raftLogger := rootLogger.Named("raft")
 	fsmLogger := rootLogger.Named("fsm")
+	snapshotLogger := rootLogger.Named("snapshot")
 	nodeLogger := rootLogger.Named("node")
 
 	raftPath := filepath.Join(basePath, "raft")
@@ -46,7 +47,7 @@ func NewNode(basePath string, id string, raftAddr string, failureDomain string, 
 	logStore, _ := bolt.NewBoltStore(filepath.Join(raftPath, "log.bolt"))
 	stableStore, _ := bolt.NewBoltStore(filepath.Join(raftPath, "stable.bolt"))
 
-	snapshots, err := raft.NewFileSnapshotStore(filepath.Join(raftPath, "data"), 2, os.Stdout)
+	snapshots, err := raft.NewFileSnapshotStoreWithLogger(filepath.Join(raftPath, "data"), 2, snapshotLogger)
 	if err != nil {
 		return nil, err
 	}

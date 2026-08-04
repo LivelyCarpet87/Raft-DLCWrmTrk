@@ -27,24 +27,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func discoverLeader(seeds []string) (string, error) {
-	for _, s := range seeds {
-		resp, err := http.Get("http://" + s + "/raft/leader")
-		if err != nil {
-			continue
-		}
-		defer resp.Body.Close()
+func discoverLeader(seeds []string) string {
+	leaderHttpAddr := ""
+	for len(leaderHttpAddr) == 0 {
+		time.Sleep(5 * time.Second)
+		for _, s := range seeds {
+			resp, err := http.Get(s + "/raft/leader")
+			if err != nil {
+				continue
+			}
+			defer resp.Body.Close()
 
-		var response rt.Response[rt.LeaderHttpAddrResponse]
-		body, _ := io.ReadAll(resp.Body)
-		if json.Unmarshal(body, &response) != nil {
-			panic(err)
-		}
-		if response.Success {
-			return response.Data.Leader, nil
+			var response rt.Response[rt.LeaderHttpAddrResponse]
+			body, _ := io.ReadAll(resp.Body)
+			if json.Unmarshal(body, &response) != nil {
+				continue
+			}
+			if response.Success {
+				leaderHttpAddr = response.Data.Leader
+			}
 		}
 	}
-	return "", errors.New("no leader found")
+	return leaderHttpAddr
 }
 
 func main() {
@@ -112,103 +116,34 @@ func main() {
 
 	log.Info("Using configuration file", "cfg", cfg)
 
-	if *bootstrap || *peersList != "" {
-		StartRaft(*bootstrap, *peersList, cfg, rootLogger, log)
-	}
-}
+	raftNodeLogger := rootLogger.Named("raftNode")
+	node := StartRaft(*bootstrap, *peersList, cfg, raftNodeLogger)
 
-func CheckConfig(cfg *Config) error {
-	if cfg.NodeID == "NODE_ID_CHANGE_ME" {
-		return errors.New("Please set the `node_id` in the config file")
-	} else if cfg.FailureDomain == "CHANGE_ME_FAILURE_DOMAIN_Room_A113" {
-		return errors.New("Please set the `failure_domain` in the config file")
-	}
-	//TODO: Ensure base_path is valid
-	//TODO: Test sufficient storage space available
-	//TODO: Ensure the two addresses are valid
-	return nil
-}
-
-func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.Logger, log hclog.Logger) {
-	leader := ""
-	peers := strings.Split(peersList, ",")
-
-	fsmDir := filepath.Join(cfg.BasePath, "fsm")
-	snapshotDir := filepath.Join(cfg.BasePath, "raft", "data")
 	vNodeDir := filepath.Join(cfg.BasePath, "vnodes")
 	workerDir := filepath.Join(cfg.BasePath, "workers")
 	_ = os.RemoveAll(workerDir)
 
-	if err := os.Mkdir(fsmDir, 0755); err != nil && !os.IsExist(err) {
-		log.Error("Failed to create directory to store FSM", "err", err)
-		return
-	}
-	if err := os.MkdirAll(snapshotDir, 0755); err != nil {
-		log.Error("Failed to create directory to store RAFT data", "err", err)
-		return
-	}
 	if err := os.MkdirAll(vNodeDir, 0755); err != nil {
 		log.Error("Failed to create directory to store vNode data", "err", err)
-		return
+		panic("Failed to create directory to store vNode data")
 	}
 	if err := os.MkdirAll(workerDir, 0755); err != nil {
 		log.Error("Failed to create directory to store worker data", "err", err)
-		return
-	}
-
-	if !bootstrap {
-		leader_found, err := discoverLeader(peers)
-		if err != nil {
-			log.Error("Failed to find leader", "err", err)
-			return
-		}
-		leader = leader_found
-		log.Info("Found leader", "leader", leader)
-	}
-
-	log.Info("Starting RAFT", "RaftBindAddr", cfg.RaftBindAddr)
-	node, err := raftnode.NewNode(
-		cfg.BasePath,
-		cfg.NodeID,
-		cfg.RaftBindAddr,
-		cfg.FailureDomain,
-		cfg.HttpPublicAddr,
-		rootLogger, bootstrap)
-	if err != nil {
-		log.Error("Failed to create RAFT node", "err", err)
-		return
-	}
-
-	if !bootstrap {
-		time.Sleep(500 * time.Millisecond) // small safety delay
-
-		form := url.Values{}
-		form.Add("nodeID", cfg.NodeID)
-		form.Add("raftAddr", cfg.RaftBindAddr)
-		form.Add("failureDomain", cfg.FailureDomain)
-		form.Add("httpAddr", cfg.HttpPublicAddr)
-
-		resp, err := http.PostForm(
-			leader+"/raft/join",
-			form,
-		)
-		if err != nil {
-			panic(err)
-		}
-		defer resp.Body.Close()
-
-		_, err = io.ReadAll(resp.Body)
-		if err != nil {
-			panic(err)
-		}
+		panic("Failed to create directory to store worker data")
 	}
 
 	ctx := context.Background()
 
-	time.Sleep(500 * time.Millisecond) // small safety delay
 	log.Info("Starting vNode manager")
 	vNodeLogger := rootLogger.Named("vNode")
 	vnm := vnode.NewVNodeManager(vNodeDir, node, vNodeLogger)
+
+	log.Info("Starting HTTP server", "HttpBindAddr", cfg.HttpBindAddr)
+	httpLogger := rootLogger.Named("httpServer")
+	s := server.New(node, httpLogger, vnm)
+	go s.Run(cfg.HttpBindAddr)
+
+	time.Sleep(500 * time.Millisecond) // small safety delay
 
 	for _ = range cfg.Storage.NumVNodes {
 		vNodeID, err := vnm.AddVNode(cfg.Storage.MaxStorage)
@@ -217,7 +152,7 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 		}
 		log.Info("Created new vNode", "vNodeID", vNodeID)
 	}
-	vnm.Run(context.Background())
+	vnm.Run(ctx)
 
 	dlcWorkerLogger := rootLogger.Named("dlcWorker")
 	workerUID := uuid.NewString()
@@ -239,13 +174,88 @@ func StartRaft(bootstrap bool, peersList string, cfg *Config, rootLogger hclog.L
 
 	go node.ClusterMaintenance()
 
-	log.Info("Starting HTTP server", "HttpBindAddr", cfg.HttpBindAddr)
-	httpLogger := rootLogger.Named("httpServer")
-	s := server.New(node, httpLogger, vnm)
-	s.Run(cfg.HttpBindAddr)
-
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
 	<-sig
+}
+
+func CheckConfig(cfg *Config) error {
+	if cfg.NodeID == "NODE_ID_CHANGE_ME" {
+		return errors.New("Please set the `node_id` in the config file")
+	} else if cfg.FailureDomain == "CHANGE_ME_FAILURE_DOMAIN_Room_A113" {
+		return errors.New("Please set the `failure_domain` in the config file")
+	}
+	//TODO: Ensure base_path is valid
+	//TODO: Test sufficient storage space available
+	//TODO: Ensure the two addresses are valid
+	return nil
+}
+
+func declareUp(peers []string, logger hclog.Logger, cfg *Config) {
+	logger.Info("Searching for leadership information from peers", "peers", peers)
+	leader := discoverLeader(peers)
+	logger.Info("Found leader", "leader", leader)
+	form := url.Values{}
+	form.Add("nodeID", cfg.NodeID)
+	form.Add("raftAddr", cfg.RaftBindAddr)
+	form.Add("failureDomain", cfg.FailureDomain)
+	form.Add("httpAddr", cfg.HttpPublicAddr)
+
+	resp, err := http.PostForm(
+		leader+"/raft/join",
+		form,
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func StartRaft(bootstrap bool, peersList string, cfg *Config, logger hclog.Logger) *raftnode.Node {
+	peers := strings.Split(peersList, ",")
+
+	fsmDir := filepath.Join(cfg.BasePath, "fsm")
+	snapshotDir := filepath.Join(cfg.BasePath, "raft", "data")
+	if err := os.Mkdir(fsmDir, 0755); err != nil && !os.IsExist(err) {
+		logger.Error("Failed to create directory to store FSM", "err", err)
+		panic("Failed to create directory to store FSM")
+	}
+	if err := os.MkdirAll(snapshotDir, 0755); err != nil {
+		logger.Error("Failed to create directory to store RAFT data", "err", err)
+		panic("Failed to create directory to store RAFT data")
+	}
+
+	logger.Info("Starting RAFT", "RaftBindAddr", cfg.RaftBindAddr)
+	node, err := raftnode.NewNode(
+		cfg.BasePath,
+		cfg.NodeID,
+		cfg.RaftBindAddr,
+		cfg.FailureDomain,
+		cfg.HttpPublicAddr,
+		logger, bootstrap)
+	if err != nil {
+		logger.Error("Failed to create RAFT node", "err", err)
+		panic("Failed to create RAFT node")
+	}
+
+	if !bootstrap {
+		readOnlyTx, _ := node.FSM.GetReadOnlyTx(context.Background())
+		hRows, _ := readOnlyTx.Query(`SELECT http_addr FROM nodes`)
+		for hRows.Next() {
+			var httpAddr string
+			hRows.Scan(&httpAddr)
+			peers = append(peers, httpAddr)
+		}
+		hRows.Close()
+		readOnlyTx.Rollback()
+
+		go declareUp(peers, logger, cfg)
+	}
+	return node
 }
