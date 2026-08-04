@@ -205,7 +205,7 @@ func (s *HTTPServer) UpdateBatch(c *gin.Context) {
 		return
 	}
 
-	OK(c, 204, nil)
+	OK(c, 200, nil)
 	return
 }
 
