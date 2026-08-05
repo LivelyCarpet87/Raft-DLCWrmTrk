@@ -4,6 +4,7 @@ export default [
     index("routes/home.tsx"),
     layout("layout/layout.tsx", [
         route("experiment-data", "routes/experiment-data.tsx"),
+        route("experiment-management", "routes/experiment-management.tsx"),
         route("test", "routes/test.tsx"),
     ]),
 ] satisfies RouteConfig;
