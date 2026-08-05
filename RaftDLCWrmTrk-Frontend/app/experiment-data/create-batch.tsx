@@ -151,7 +151,7 @@ export default function CreateBatch() {
             if (fileInfo.numWorms === ''){
                 setErrorText(`Must specify number of worms that appear in ${fileInfo.file.name}`);
                 return;
-            } else if (fileInfo.file.size > 40 * 1024 * 1024){
+            } else if (fileInfo.file.size > 80 * 1024 * 1024){
                 setErrorText(`File is too large: ${fileInfo.file.name}`);
                 return;
             } else if (fileInfo.file.size < 5 * 1024 * 1024){
