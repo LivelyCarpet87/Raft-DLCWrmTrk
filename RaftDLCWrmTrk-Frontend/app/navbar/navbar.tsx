@@ -15,7 +15,7 @@ export function NavBar() {
     return (
         <header className="flex flex-row items-center justify-center-safe gap-9 p-6 bg-slate-100 border-b-4 border-slate-200 w-full h-fit sticky top-0 z-10">
             <HeaderLink to="/" displayName="Home" active={pathname === "/"} />
-            <HeaderLink to="/" displayName="Experiment Data" active={pathname.startsWith("experiment-data")} />
+            <HeaderLink to="/experiment-data" displayName="Experiment Data" active={pathname.startsWith("experiment-data")} />
             <HeaderLink to="/" displayName="Experiment Management" active={pathname.startsWith("experiment-management")} />
             <HeaderLink to="/" displayName="System Metrics" active={pathname.startsWith("system-metrics")} />
             <HeaderLink to="/" displayName="Logout" active={false} />
