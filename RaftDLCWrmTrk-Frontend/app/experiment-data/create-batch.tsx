@@ -6,7 +6,8 @@ import useSWR from "swr"
 import {useState} from "react"
 import { ApiError, fetcher, HttpError, postMultipart } from "~/apiCaller/apiCaller"
 import { HorizontalDivider } from "~/dividers/dividers"
-import type { CreateBatchResponse, ListTagsResponse, TagInfo } from "~/types/apiResponses"
+import type { CreateBatchResponse, ListBatchesResponse, ListTagsResponse, TagInfo } from "~/types/apiResponses"
+import { mutateUntil } from "~/mutateUntil/mutateUntil"
 
 interface VideoFilePropsType {
     videoID: string
@@ -97,7 +98,7 @@ export default function CreateBatch() {
 
                 const next = new Map(videoFilesInfo)
                 uniqueNewFiles.map(
-                    (file:File) => {next.set(crypto.randomUUID(), ({
+                    (file:File) => {next.set(file.name, ({
                         file: file,
                         numWorms: ''
                     }))}
@@ -226,7 +227,8 @@ export default function CreateBatch() {
                     return;
                 }
             }
-            setProgress(progress+100*1/(1+videoFilesInfo.size))
+            localProgress += 100*1/(1+videoFilesInfo.size);
+            setProgress(localProgress);
         }
         setBatchName("");
         setNormFile(null);
