@@ -1,50 +1,19 @@
-import { Select, TextInput, Button } from "@mantine/core";
-import { useState } from "react";
-import { mutate } from "swr";
-import { postForm } from "~/apiCaller/apiCaller";
+import { Pill } from "@mantine/core";
+import { TagManager } from "./tag-manager";
+import { HorizontalDivider } from "~/dividers/dividers";
 
-function CreateTagMenu(){    
-    const [newTagName, setNewTagName] = useState("");
-    const [newTagType, setNewTagType] = useState<string|null>(null);
-    async function createTag(){
-        if (newTagName.length === 0 || !newTagType) {
-            return;
-        }
-        await postForm('/api/experiment/tags/create', {
-            tagName: newTagName,
-            tagType: newTagType,
-        });
-
-        setNewTagName("");
-        setNewTagType(null);
-        setTimeout(()=>{
-            mutate("/api/experiment/tags/get");
-        },2000)
-        return;
-    }
-    return (
-        <div className="flex flex-col gap-2 w-72 bg-slate-100 p-2">
-            <p>Create Tag</p>
-            <TextInput 
-                value={newTagName} 
-                label="Tag Name" 
-                onChange={(event)=>{setNewTagName(event.currentTarget.value)}}
-            />
-            <Select 
-                label="Tag Type" 
-                data={["primary", "secondary", "condition"]} 
-                value={newTagType}
-                onChange={setNewTagType}
-            />
-            <Button onClick={()=>{createTag()}}>Create Tag</Button>
-        </div>
-    )
-}
 
 export default function ExperimentManagement() {
     return (
-        <div className="flex flex-row gap-6 w-full justify-center justify-items-center-safe items-start place-content-around">
-            <CreateTagMenu/>
+        <div className="flex flex-col gap-2">
+            <h3 className="font-bold text-xl">Tag Management:</h3>
+            <p>All available tags in the system are listed here by tag type and visibility. Hidden tags cannot be used when creating new batches. ONLY Hidden Tags that are not associated with experiment data can be deleted.</p>
+            <div className="flex flex-row gap-6 w-full justify-center justify-items-center-safe items-start place-content-around">
+                <TagManager tagType={"primary"}/>
+                <TagManager tagType={"secondary"}/>
+                <TagManager tagType={"condition"}/>
+            </div>
+            <HorizontalDivider />
         </div>
     )
 }
