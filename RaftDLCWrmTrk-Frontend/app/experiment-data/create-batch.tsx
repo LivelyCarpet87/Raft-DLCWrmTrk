@@ -197,8 +197,9 @@ export default function CreateBatch() {
                 return
             }
         }
-        const batchUID = resp!.batchUID
-        setProgress(100*1/(1+videoFilesInfo.size))
+        const batchUID = resp!.batchUID;
+        let localProgress = 100*1/(1+videoFilesInfo.size);
+        setProgress(localProgress);
         for (const [_videoID, fileInfo] of videoFilesInfo.entries()) {
             const form = new FormData();
 
@@ -234,6 +235,16 @@ export default function CreateBatch() {
         setVideoFilesInfo(new Map());
         setUploading(false);
 
+        const isExpected = (batchListResp:ListBatchesResponse) => {
+            const batchList:string[] = batchListResp?.batchUIDs ?? [];
+            return batchList.includes(batchUID)
+        }
+        mutateUntil<ListBatchesResponse>(
+            `/api/experiment/batches/list?primaryTag=${encodeURIComponent(primTag)}&secondaryTag=${encodeURIComponent(secTag)}`, {
+            maxAttempts: 3, 
+            delayMs: 500, 
+            isExpected: isExpected,
+        })
     }
 
     const primTagList:string[] = primTags?.tags?.map( (tag:TagInfo)=>tag.tagName ) ?? [];

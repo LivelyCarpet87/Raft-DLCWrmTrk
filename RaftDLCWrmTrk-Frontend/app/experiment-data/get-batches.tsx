@@ -459,7 +459,7 @@ export default function GetBatches() {
     const { data:lsBatchResp } = useSWR<ListBatchesResponse>(
         (primTag != null && secTag != null) ? `/api/experiment/batches/list?primaryTag=${encodeURIComponent(primTag)}&secondaryTag=${encodeURIComponent(secTag)}` : null,
         fetcher,
-        {refreshInterval: 30_000}
+        {refreshInterval: 600_000}
     );
 
     const batchBoxes = (lsBatchResp?.batchUIDs??[]).map((batchUID) => (
