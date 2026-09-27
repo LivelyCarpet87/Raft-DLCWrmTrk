@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func NewVNodeManager(vNodeDir string, raftNode *raftnode.Node, logger hclog.Logg
 	return vnm
 }
 
-func (vnm *VNodeManager) AddVNode(sizeLimit int64) (string, error) {
+func (vnm *VNodeManager) addVNode(sizeLimit int64) (string, error) {
 	vNodeID := uuid.NewString()
 	addVNodeCommand := rc.AddVNodeCommand{
 		NodeID:    vnm.RaftNode.GetRaftNodeID(),
@@ -60,6 +61,45 @@ func (vnm *VNodeManager) AddVNode(sizeLimit int64) (string, error) {
 	}
 	vnm.VNodes[vNodeID] = vNode
 	return vNodeID, nil
+}
+
+func (vnm *VNodeManager) detectExistingVNodes() error {
+	err := filepath.WalkDir(vnm.VNodeDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Only inspect directories.
+		if !d.IsDir() {
+			return nil
+		}
+
+		// Match UUID directory names.
+		if _, err := uuid.Parse(d.Name()); err == nil {
+			vNodeID := d.Name()
+			// Enroll matching directories as a vNode detected
+			vNode, err := NewVNode(vNodeID, filepath.Join(vnm.VNodeDir, vNodeID), vnm.RaftNode, vnm.Logger)
+			if err != nil {
+				return err
+			}
+			vnm.VNodes[vNodeID] = vNode
+		}
+		return nil
+	})
+	return err
+}
+
+func (vnm VNodeManager) GenerateNecessaryVNodes(expVNodeCount int, maxStorage int64) error {
+	vnm.detectExistingVNodes()
+	for len(vnm.VNodes) < expVNodeCount {
+		vNodeID, err := vnm.addVNode(maxStorage)
+		if err != nil {
+			vnm.Logger.Error("Error creating new vNode", "vNodeID", vNodeID, "err", err)
+			return err
+		}
+		vnm.Logger.Info("Created new vNode", "vNodeID", vNodeID)
+	}
+	return nil
 }
 
 func (vnm VNodeManager) Run(ctx context.Context) {

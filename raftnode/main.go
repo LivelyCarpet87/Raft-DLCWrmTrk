@@ -145,13 +145,7 @@ func main() {
 
 	time.Sleep(500 * time.Millisecond) // small safety delay
 
-	for _ = range cfg.Storage.NumVNodes {
-		vNodeID, err := vnm.AddVNode(cfg.Storage.MaxStorage)
-		if err != nil {
-			log.Error("Error creating new vNode", "vNodeID", vNodeID, "err", err)
-		}
-		log.Info("Created new vNode", "vNodeID", vNodeID)
-	}
+	vnm.GenerateNecessaryVNodes(cfg.Storage.NumVNodes, cfg.Storage.MaxStorage)
 	vnm.Run(ctx)
 
 	dlcCfg := workers.DlcRunnerModuleConfig{

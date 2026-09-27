@@ -51,6 +51,9 @@ func (vn *VNode) IngestFile(fileData io.ReadSeeker, mimeType string) (
 	fileSize int64,
 	err error,
 ) {
+	if vn == nil {
+		panic("Using un-initiated VNode!")
+	}
 	h := md5.New()
 
 	tempFile, err := os.CreateTemp("", "upload-*")
