@@ -89,9 +89,13 @@ async function refreshEndpoints() {
   return state.refreshPromise;
 }
 
-function maybeRefreshEndpoints() {
+async function maybeRefreshEndpoints() {
   if (Date.now() >= state.refreshAfter && !state.refreshPromise) {
-    void refreshEndpoints();
+    if (state.endpoints.length === 0){
+      await refreshEndpoints();
+    } else {
+      void refreshEndpoints();
+    }
   }
 }
 
@@ -185,7 +189,7 @@ async function request<T>(
   path: string,
   init?: RequestInit
 ): Promise<T | undefined> {
-  maybeRefreshEndpoints();
+  await maybeRefreshEndpoints();
 
   const tried = new Set<string>();
 
