@@ -435,6 +435,34 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 			return err
 		}
 
+	case "TryModifyTag":
+		var cmd raftcommands.TryModifyTagCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		_, err := tx.Exec(`
+			UPDATE tags
+			SET visible = ?
+			WHERE tag_name = ? AND type = ?
+		`, cmd.TagVisible, cmd.TagName, cmd.TagType)
+		if err != nil {
+			f.logger.Error("TryModifyTag failed", "err", err)
+			return err
+		}
+
+	case "TryRmTag":
+		var cmd raftcommands.TryRmTagCommand
+		json.Unmarshal(cmdEnv.Data, &cmd)
+		_, err := tx.Exec(`
+			DELETE FROM tags
+			WHERE tag_name = ? AND type = ? AND NOT visible 
+			AND NOT (type = "primary" AND EXISTS (SELECT batch_uid FROM batches WHERE primary_tag = tags.tag_name) )
+			AND NOT (type = "secondary" AND EXISTS (SELECT batch_uid FROM batches WHERE secondary_tag = tags.tag_name) )
+			AND NOT (type = "condition" AND EXISTS (SELECT batch_uid FROM conditions WHERE tag_name = tags.tag_name) )
+		`, cmd.TagName, cmd.TagType)
+		if err != nil {
+			f.logger.Error("TryRmTag failed", "err", err)
+			return err
+		}
+
 	case "AddVNode":
 		var cmd raftcommands.AddVNodeCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)

@@ -66,9 +66,10 @@ func New(raftNode *raftnode.Node, Logger hclog.Logger, vnm *vnode.VNodeManager) 
 			tags := experiment.Group("/tags")
 			{
 				tags.POST("/create", s.TryAddTag)
+				tags.POST("/modify", s.TryModifyTag)
+				tags.POST("/rm", s.TryRmTag)
 				tags.GET("/list", s.ListTags)
-				//tags.POST("/rm", getUser)
-				//tags.POST("/update", getUser)
+
 			}
 
 			batches := experiment.Group("/batches")

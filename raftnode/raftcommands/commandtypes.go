@@ -23,6 +23,17 @@ type TryAddTagCommand struct {
 	TagType string `json:"tagType"`
 }
 
+type TryModifyTagCommand struct {
+	TagName    string `json:"tagName"`
+	TagType    string `json:"tagType"`
+	TagVisible bool   `json:"tagVisible"`
+}
+
+type TryRmTagCommand struct {
+	TagName string `json:"tagName"`
+	TagType string `json:"tagType"`
+}
+
 type AddVNodeCommand struct {
 	NodeID    string `json:"nodeID"`
 	VNodeID   string `json:"vNodeID"`
