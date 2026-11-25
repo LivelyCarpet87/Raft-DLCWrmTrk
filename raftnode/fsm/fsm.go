@@ -51,6 +51,7 @@ func InitSchema(db *sql.DB) error {
 		node_id TEXT NOT NULL,
 		status TEXT NOT NULL, -- up|crowded|full|down
 		storage_size INTEGER NOT NULL,
+		last_heartbeat_time TEXT,
 		CHECK(status IN ('up','crowded','full','down'))
 	);
 
@@ -467,9 +468,9 @@ func (f *FSM) Apply(log *raft.Log) interface{} {
 		var cmd raftcommands.AddVNodeCommand
 		json.Unmarshal(cmdEnv.Data, &cmd)
 		_, err := tx.Exec(`
-			INSERT OR REPLACE INTO vnodes(vnode_id, node_id, status, storage_size)
-			VALUES(?,?,'up',?)
-		`, cmd.VNodeID, cmd.NodeID, cmd.SizeLimit)
+			INSERT OR REPLACE INTO vnodes(vnode_id, node_id, status, storage_size, last_heartbeat_time)
+			VALUES(?,?,'up',?,?)
+		`, cmd.VNodeID, cmd.NodeID, cmd.SizeLimit, cmd.HeartbeatTime)
 		if err != nil {
 			f.logger.Error("AddVNode failed", "err", err)
 			return err

@@ -35,9 +35,10 @@ type TryRmTagCommand struct {
 }
 
 type AddVNodeCommand struct {
-	NodeID    string `json:"nodeID"`
-	VNodeID   string `json:"vNodeID"`
-	SizeLimit int64  `json:"sizeLimit"`
+	NodeID        string `json:"nodeID"`
+	VNodeID       string `json:"vNodeID"`
+	SizeLimit     int64  `json:"sizeLimit"`
+	HeartbeatTime string `json:"heartbeatTime"`
 }
 
 type AddBatchCommand struct {

@@ -41,9 +41,10 @@ func NewVNodeManager(vNodeDir string, raftNode *raftnode.Node, logger hclog.Logg
 func (vnm *VNodeManager) addVNode(sizeLimit int64) (string, error) {
 	vNodeID := uuid.NewString()
 	addVNodeCommand := rc.AddVNodeCommand{
-		NodeID:    vnm.RaftNode.GetRaftNodeID(),
-		VNodeID:   vNodeID,
-		SizeLimit: sizeLimit,
+		NodeID:        vnm.RaftNode.GetRaftNodeID(),
+		VNodeID:       vNodeID,
+		SizeLimit:     sizeLimit,
+		HeartbeatTime: time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	cmdData, _ := json.Marshal(addVNodeCommand)
 	cmdEnv := rc.CommandEnvelope{
